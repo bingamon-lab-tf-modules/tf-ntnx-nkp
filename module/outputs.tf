@@ -53,3 +53,20 @@ output "nkp_summary" {
   }
   sensitive = true
 }
+
+##################################################
+# Aggregate Output (spec §7.6 contract)
+##################################################
+
+output "outputs" {
+  description = "Aggregate of all module outputs (spec §7.6 contract, consumed by the landing zone as module.<x>.outputs)."
+  value = {
+    nkp_summary = {
+      status           = "PENDING_PROVIDER_SUPPORT"
+      total_clusters   = length(var.clusters)
+      total_node_pools = length(var.node_pools)
+      total_registries = length(var.registries)
+    }
+  }
+  sensitive = true
+}

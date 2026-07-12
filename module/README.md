@@ -39,4 +39,5 @@ No resources.
 | Name | Description |
 |------|-------------|
 | <a name="output_nkp_summary"></a> [nkp\_summary](#output\_nkp\_summary) | Summary of NKP resources (pending provider support). |
+| <a name="output_outputs"></a> [outputs](#output\_outputs) | Aggregate of all module outputs (spec §7.6 contract, consumed by the landing zone as module.<x>.outputs). |
 <!-- END_TF_DOCS -->

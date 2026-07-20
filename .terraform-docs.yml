@@ -29,7 +29,7 @@ output-values:
   from: ""
 
 sort:
-  enabled: false
+  enabled: true
   by: name
 
 settings:

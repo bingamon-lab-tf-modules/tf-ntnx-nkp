@@ -76,3 +76,4 @@ tfvars
 trivycache
 utilize
 prek
+nixos

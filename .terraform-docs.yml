@@ -6,11 +6,9 @@ header-from: main.tf
 footer-from: ""
 
 recursive:
-  enabled: true
+  enabled: false
   path: .
   include-main: true
-  exclude:
-    - .terraform
 
 sections:
   hide: []
@@ -31,7 +29,7 @@ output-values:
   from: ""
 
 sort:
-  enabled: true
+  enabled: false
   by: name
 
 settings:

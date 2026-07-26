@@ -1,6 +1,8 @@
 aci
+acli
 admissionregistration
 AEAAQ
+aescbc
 AIRGAPPED
 airgapped
 Airgapped
@@ -16,6 +18,7 @@ apiserver
 apiserverconf
 apiserverconfand
 apiserverconfon
+APIV
 apiversion
 appdeployment
 APPDEPLOYMENT
@@ -49,6 +52,7 @@ BCDR
 BDRVJUSUZJQ
 bingamon
 bitnami
+blackhole
 boltdb
 bookinfo
 Bootstrapper
@@ -104,6 +108,7 @@ clusterapi
 clusterapps
 CLUSTERCLASS
 clusterclass
+clusterclasses
 clusterconfig
 clusterctl
 clusterexternalsecrets
@@ -116,6 +121,8 @@ clusterrolebinding
 clusterroles
 clustersecretstore
 clustersecretstores
+CMSP
+CMVP
 Coip
 Conatinerd
 configmap
@@ -339,6 +346,7 @@ Kubeconfig
 kubeconfig
 KUBECONFIG
 kubeconfigfile
+kubeconform
 kubecost
 Kubecost
 kubefed
@@ -403,6 +411,7 @@ mgmt
 Mgmt
 microsoftteams
 microsvc
+Mikro
 mindthegap
 misconfig
 Miww
@@ -445,6 +454,7 @@ Nodepool
 nodepool
 Nodepools
 nodepools
+noexec
 noout
 normalization
 normalized
@@ -454,8 +464,10 @@ ntnx
 nutanix
 Nutanix
 nutanixcluster
+nutanixclusterconfigs
 nutanixmachine
 nutanixndk
+nutanixworkernodeconfigs
 nvcck
 nvcr
 nxcm
@@ -481,9 +493,11 @@ oslogin
 outform
 outputroot
 oyaml
+paas
 PACCT
 Pbinary
 PCBR
+PCVMs
 pdlb
 pdlz
 PERFMON
@@ -571,7 +585,9 @@ sarif
 SARIF
 schedulerconf
 sealedsecrets
+seccomp
 Secretcollector
+secretspec
 secretstores
 Secur
 securitycontextdeny
@@ -580,9 +596,11 @@ serviceentry
 sfqfm
 sgrd
 showcerts
+SIEM
 SIPREC
 smarthost
 smbz
+sneakernet
 snxb
 specializing
 Spegel
@@ -636,6 +654,7 @@ tunnelfront
 tunnelgateway
 tunnelproxy
 txfw
+unconfigurable
 uncordon
 Uncorr
 undeployed
@@ -687,6 +706,7 @@ westus
 wfhcc
 whfs
 wjdrg
+wkld
 wktkh
 workspacens
 workspacerole
@@ -700,6 +720,7 @@ xport
 xqmn
 xvtqm
 xzvf
+xzvp
 xzvpf
 yamlconfiguration
 yamlfile

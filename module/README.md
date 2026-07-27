@@ -36,7 +36,9 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_bastion_ssh_keys"></a> [bastion\_ssh\_keys](#input\_bastion\_ssh\_keys) | List of SSH public keys for Bastion host access | `list(string)` | `[]` | no |
 | <a name="input_bundle_paths"></a> [bundle\_paths](#input\_bundle\_paths) | List of local tarball bundle paths for air-gapped deployment | `list(string)` | `[]` | no |
+| <a name="input_ca_certificates"></a> [ca\_certificates](#input\_ca\_certificates) | List of PEM-encoded CA certificates to inject into the Bastion host trust store | `list(string)` | `[]` | no |
 | <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name of the NKP management cluster | `string` | n/a | yes |
 | <a name="input_control_plane_subnet"></a> [control\_plane\_subnet](#input\_control\_plane\_subnet) | Nutanix subnet name/UUID for control plane nodes | `string` | n/a | yes |
 | <a name="input_control_plane_vip"></a> [control\_plane\_vip](#input\_control\_plane\_vip) | Static VIP for Kubernetes control plane | `string` | n/a | yes |
@@ -57,6 +59,7 @@ No modules.
 
 | Name | Description |
 |------|-------------|
+| <a name="output_bastion_cloud_init"></a> [bastion\_cloud\_init](#output\_bastion\_cloud\_init) | Rendered Bastion VM cloud-init user-data YAML string |
 | <a name="output_bootstrap_script"></a> [bootstrap\_script](#output\_bootstrap\_script) | Rendered nkp create cluster nutanix shell script |
 | <a name="output_nkp_summary"></a> [nkp\_summary](#output\_nkp\_summary) | Summary of NKP cluster configuration. |
 | <a name="output_outputs"></a> [outputs](#output\_outputs) | Aggregate of all module outputs (spec §7.6 contract, consumed by the landing zone as module.<x>.outputs). |

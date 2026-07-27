@@ -250,3 +250,68 @@ run "upgrade_script_valid" {
     error_message = "Expected aggregate output.outputs.upgrade_script to match top-level output"
   }
 }
+
+run "bastion_cloud_init_valid" {
+  command = plan
+
+  variables {
+    cluster_name           = "nkp-mgmt-01"
+    profile                = "small"
+    prism_central_endpoint = "pc.lab.local"
+    control_plane_vip      = "192.168.82.10"
+    prism_element_cluster  = "pe-cluster-01"
+    control_plane_subnet   = "vlan82-cp"
+    worker_subnet          = "vlan82-worker"
+    csi_storage_container  = "csi-container-01"
+    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
+    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
+    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+    ca_certificates        = ["-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----"]
+    bastion_ssh_keys       = ["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ... admin@lab"]
+  }
+
+  assert {
+    condition     = can(regex("^#cloud-config", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to start with #cloud-config header"
+  }
+
+  assert {
+    condition     = can(regex("hostname: nkp-mgmt-01-bastion", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to set hostname"
+  }
+
+  assert {
+    condition     = can(regex("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ\\.\\.\\. admin@lab", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to include provided SSH key"
+  }
+
+  assert {
+    condition     = can(regex("/etc/pki/ca-trust/source/anchors/internal-ca\\.crt", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to write internal CA certificate file"
+  }
+
+  assert {
+    condition     = can(regex("/usr/local/bin/unpack-airgap-bundles\\.sh", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to write air-gapped bundle unpacking script"
+  }
+
+  assert {
+    condition     = can(regex("/etc/profile\\.d/sops-env\\.sh", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to stage SOPS environment configuration script"
+  }
+
+  assert {
+    condition     = can(regex("export SOPS_AGE_KEY_FILE=", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to contain SOPS age key env variable"
+  }
+
+  assert {
+    condition     = can(regex("- sops", output.bastion_cloud_init))
+    error_message = "Expected bastion_cloud_init to declare sops package"
+  }
+
+  assert {
+    condition     = output.outputs.bastion_cloud_init == output.bastion_cloud_init
+    error_message = "Expected aggregate output.outputs.bastion_cloud_init to match top-level output"
+  }
+}

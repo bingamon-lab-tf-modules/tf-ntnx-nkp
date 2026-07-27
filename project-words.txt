@@ -3,6 +3,7 @@ acli
 admissionregistration
 AEAAQ
 aescbc
+airgap
 AIRGAPPED
 airgapped
 Airgapped
@@ -411,6 +412,7 @@ mgmt
 Mgmt
 microsoftteams
 microsvc
+MIIC
 Mikro
 mindthegap
 misconfig
@@ -503,6 +505,7 @@ pdlz
 PERFMON
 pgbcd
 Pgpu
+pipefail
 pkgs
 Pn
 pnjj
@@ -578,6 +581,7 @@ rpcc
 rrbutani
 rtdqw
 rtnd
+runcmd
 runfile
 RUNFILE
 runfiles

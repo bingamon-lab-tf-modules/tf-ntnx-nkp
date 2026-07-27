@@ -103,6 +103,18 @@ variable "bundle_paths" {
   default     = []
 }
 
+variable "ca_certificates" {
+  type        = list(string)
+  description = "List of PEM-encoded CA certificates to inject into the Bastion host trust store"
+  default     = []
+}
+
+variable "bastion_ssh_keys" {
+  type        = list(string)
+  description = "List of SSH public keys for Bastion host access"
+  default     = []
+}
+
 variable "nutanix_username" {
   type        = string
   description = "Nutanix Prism Central Username"

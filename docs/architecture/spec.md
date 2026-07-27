@@ -45,12 +45,14 @@ nkp create cluster nutanix \
   --worker-prism-element-cluster="${var.prism_element_cluster}" \
   --worker-subnets="${var.worker_subnet}" \
   --worker-vm-image="${var.worker_vm_image}" \
+  --worker-replicas=${local.worker_replicas} \
   --csi-storage-container="${var.csi_storage_container}" \
   --kubernetes-service-load-balancer-ip-range="${var.load_balancer_ip_range}" \
   --kubernetes-pod-network-cidr="${var.pod_cidr}" \
   --kubernetes-service-cidr="${var.service_cidr}" \
   --airgapped=true \
-  ${BUNDLE_FLAGS}
+  ${BUNDLE_FLAGS} \
+  ${APP_FLAGS}
 ```
 
 ### 2.2 Profile Sizing & Application Flags
@@ -66,6 +68,7 @@ nkp create cluster nutanix \
 
 - **`--airgapped=true` MUST be hardcoded** in the script renderer. It must not be exposed as a configurable boolean variable.
 - **Image Bundles (`${BUNDLE_FLAGS}`):** Must use local air-gapped bundle tarballs:
+
   ```bash
   export BUNDLE_FLAGS="--bundle ./nkp-${NKP_VERSION}/container-images/kommander-image-bundle-${NKP_VERSION}.tar,./nkp-${NKP_VERSION}/container-images/konvoy-image-bundle-${NKP_VERSION}.tar"
   ```
@@ -176,6 +179,18 @@ variable "bundle_paths" {
   default     = []
 }
 
+variable "ca_certificates" {
+  type        = list(string)
+  description = "List of PEM-encoded CA certificates to inject into the Bastion host trust store"
+  default     = []
+}
+
+variable "bastion_ssh_keys" {
+  type        = list(string)
+  description = "List of SSH public keys for Bastion host access"
+  default     = []
+}
+
 variable "nutanix_username" {
   type        = string
   description = "Nutanix Prism Central Username"
@@ -194,6 +209,11 @@ variable "nutanix_password" {
 ### Module Outputs
 
 ```hcl
+output "nkp_summary" {
+  type        = map(string)
+  description = "Summary of NKP cluster configuration"
+}
+
 output "bootstrap_script" {
   type        = string
   description = "Rendered nkp create cluster nutanix shell script"
@@ -212,6 +232,11 @@ output "bastion_cloud_init" {
 output "prerequisites" {
   type        = map(any)
   description = "Map of validated Nutanix cluster, subnet, and container prerequisites"
+}
+
+output "outputs" {
+  type        = map(any)
+  description = "Aggregate of all module outputs (consumed by the landing zone as module.<x>.outputs)"
 }
 ```
 

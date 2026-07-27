@@ -42,9 +42,9 @@ is a PDF-to-Markdown conversion whose line numbering is unstable, citations name
 | 1   | AOS / PC version floor          | satisfied             | n/a                 |
 | 2   | Physical capacity               | satisfied             | n/a                 |
 | 3   | Licence (Ultimate)              | held                  | n/a                 |
-| 4   | VLAN 82 addressing + DHCP scope | **missing**           | this repo + network |
-| 5   | Control-plane VIP               | **missing**           | decision + NKP CLI  |
-| 6   | MetalLB service range           | **missing**           | decision + NKP CLI  |
+| 4   | VLAN 82 addressing + DHCP scope | **satisfied**         | UDM (confirmed)     |
+| 5   | Control-plane VIP               | decided, to reserve   | decision + NKP CLI  |
+| 6   | MetalLB service range           | decided, to reserve   | decision + NKP CLI  |
 | 7   | Pod CIDR override               | decided, not yet used | NKP CLI             |
 | 8   | Storage container               | **missing**           | this repo           |
 | 9   | PC account for NKP              | **missing**           | this repo           |
@@ -270,20 +270,32 @@ Both the VIP and the LB range carry the same rule, stated identically in two pla
 > A static IP that is not part of a dynamic host configuration protocol (DHCP) or IP address
 > management (IPAM) pool
 
-**Proposed plan — this is a decision to confirm, not a verified fact.** The repo contains no
-evidence of VLAN 82's intended CIDR; this follows only the observed VLAN-_N_ ↔
-`192.168.N.0/24` convention of VLANs 80, 83 and 85:
+**Confirmed against the UDM.** VLAN 82 is trunked to the blades, the subnet and gateway are as
+below, and the DHCP scope is set with Auto Default Gateway and Auto DNS Server enabled — so
+nodes receive gateway and resolver automatically.
 
-| Purpose           | Proposed                        | Constraint                                       |
-| ----------------- | ------------------------------- | ------------------------------------------------ |
-| VLAN 82 CIDR      | `192.168.82.0/24`               | must not overlap any other lab subnet            |
-| Gateway           | `192.168.82.254`                | matches lab convention                           |
-| Control-plane VIP | `192.168.82.10`                 | outside the DHCP scope, unused                   |
-| MetalLB range     | `192.168.82.20–192.168.82.39`   | outside the DHCP scope; `.20` becomes the NKP UI |
-| UDM DHCP scope    | `192.168.82.100–192.168.82.199` | ≥ 7 free addresses; set on the UDM, not here     |
+| Purpose           | Value                           | Status                                                  |
+| ----------------- | ------------------------------- | ------------------------------------------------------- |
+| VLAN 82 CIDR      | `192.168.82.0/24`               | **confirmed** — UDM network "Kubernetes"                |
+| Gateway           | `192.168.82.254`                | **confirmed**                                           |
+| UDM DHCP scope    | `192.168.82.100–192.168.82.200` | **confirmed** — 101 addresses, node IPs come here       |
+| Control-plane VIP | `192.168.82.10`                 | **to reserve** — outside the scope, unused              |
+| MetalLB range     | `192.168.82.20–192.168.82.39`   | **to reserve** — outside the scope; `.20` is the NKP UI |
+
+Free space after the above: `.1–.9`, `.11–.19`, `.40–.99`, `.201–.253`. The VIP and the
+MetalLB range both sit outside the DHCP scope as NKP requires.
+
+Node addresses are assigned dynamically, so a replaced node gets a new IP. That is fine —
+the control-plane VIP and the MetalLB range are the stable endpoints, which is exactly why
+they must not come from the pool.
 
 > The NKP guide's own worked example places the MetalLB range _inside_ the pool, contradicting
 > its own normative rule. Follow the rule, not the example.
+>
+> **The lab air gap is a simulation.** VLAN 82 has **Allow Internet Access** enabled on the
+> UDM. Air-gapped behaviour must therefore be _forced_ — `--airgapped=true`, an explicit
+> registry mirror — never assumed. A build that quietly reaches the internet will succeed in
+> the lab and fail in a real enclave, masking the defect until it matters.
 
 ### 4.4 Reachability, DNS and NTP
 
@@ -614,12 +626,10 @@ subset that bears on the Nutanix prerequisites:
 
 ### Still open
 
-1. **VLAN 82 CIDR, gateway and DHCP scope boundaries.** Nothing else can proceed without
-   these. Recommend the §4.3 plan, with the scope set on the UDM.
-2. **Full platform apps, or the Small Environment profile?** Recommend Small Environment for
+1. **Full platform apps, or the Small Environment profile?** Recommend Small Environment for
    a first build; it removes the Rook Ceph 4-worker / 190 GiB floor. Note this interacts with
    Ultimate, which deploys `rook-ceph` and `velero` on key application.
-3. **Is NDK in scope?** Ultimate makes it available. If adopted, its own prerequisites apply
+2. **Is NDK in scope?** Ultimate makes it available. If adopted, its own prerequisites apply
    (§5.3).
 
 ## Open questions
@@ -630,9 +640,9 @@ subset that bears on the Nutanix prerequisites:
   that could actually bind.
 - **Air-gapped bundle size** — not stated in any Nutanix source. Affects sneakernet planning.
 - **Rocky 9.6 vs 9.7** — the docs disagree with themselves.
-- **Does the UDM serve DHCP on VLAN 82**, and is VLAN 82 trunked to the blades at all? This
-  is now load-bearing: with Nutanix IPAM ruled out, DHCP is the only address source, and a
-  VLAN that is not trunked has no path to Prism Central either.
+- **Reverse path from VLAN 82.** Trunking and DHCP are confirmed, but the node subnet still
+  needs verified reachability to Prism Central on `192.168.83.220:9440` and to DNS on
+  `192.168.85.11`. Inter-VLAN routing on the UDM is the thing to check.
 - **Does PC present a self-signed certificate?** Determines `--additional-trust-bundle` vs
   `--insecure`. Note the repo's provider currently defaults to `insecure = true`.
 

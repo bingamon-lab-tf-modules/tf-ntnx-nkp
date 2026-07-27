@@ -89,8 +89,16 @@ The CLI takes **no values file**. There is no `--values`, `-f` or `--config` on
 --csi-storage-container --kubernetes-service-load-balancer-ip-range
 ```
 
-plus one of `--vm-image` / `--control-plane-vm-image` / `--worker-vm-image`, enforced as a
-flag group.
+plus **at least one** of `--vm-image` / `--control-plane-vm-image` / `--worker-vm-image`. The binary
+enforces this as a cobra flag group and its error is explicit:
+
+```text
+at least one of the flags in the group [vm-image control-plane-vm-image worker-vm-image] is required
+```
+
+> **Not "exactly one".** Passing `--control-plane-vm-image` _and_ `--worker-vm-image` together is the
+> documented invocation (`08-custom-installation-and-tools.md` § "Creating the … Management Cluster
+> using CLI"). Any validation asserting mutual exclusion would reject Nutanix's own worked example.
 
 So Terraform's job is to **resolve and validate**, then render. It does not execute:
 
@@ -150,6 +158,51 @@ model as Day 1. **The admin edits YAML; the admin does not SSH.** SSH stays brea
 Note `nkp upgrade cluster nutanix` on the management cluster also performs "Updating
 ClusterClass resources" — the ClusterClass is a product artefact, installed and updated by the
 CLI, never by us.
+
+## Air-gap — non-negotiable
+
+**`--airgapped=true` on every `nkp create cluster` invocation. No exceptions, in any
+environment.**
+
+This is not a lab-versus-production toggle. The lab's VLAN 82 has **Allow Internet Access**
+enabled on the UDM, so a cluster built without the flag will come up perfectly — pulling from
+Docker Hub — and the same command will fail in a real enclave. **The lab cannot detect this
+class of defect.** Forcing the flag is the only thing that makes lab success meaningful.
+
+The renderer in `tf-ntnx-nkp` therefore hard-codes it rather than exposing it as a variable.
+There is no legitimate reason for a bingamon cluster to be built any other way.
+
+### The registry flags that go with it
+
+Images come from the **internal registry mirror** (NCR), seeded from bundle tarballs on the
+bastion at cluster-create time:
+
+```bash
+export BUNDLE_FLAGS=" --bundle ./nkp-<ver>/container-images/kommander-image-bundle-<ver>.tar,\
+./nkp-<ver>/container-images/konvoy-image-bundle-<ver>.tar"
+```
+
+> **Important: Do not use both BUNDLE_FLAG and REGISTRY_MIRROR_FLAG simultaneously.**
+
+So `${BUNDLE_FLAGS}` **or** `${REGISTRY_MIRROR_FLAGS}`, never both. We use the former; no
+Harbor is required. Per-cluster caching is then handled by the `addons.registry` CNCF
+Distribution addon (see [Networking](#networking)).
+
+### Two failure modes to design out
+
+**Extract the bundle with `-p`.** Without it a restrictive umask strips read permissions and
+the deployment hangs at _"Waiting for bundles to be pushed to internal registry"_ with a
+permission-denied error:
+
+```bash
+tar -xzvpf nkp-air-gapped-bundle_<ver>_linux_amd64.tar.gz
+```
+
+**Prove builds are offline, don't assume it.** The `nkp-images` pipeline and the bastion
+cloud-init must be verifiably offline-capable. The reference implementation we studied
+claimed to be air-gapped while its bastion pulled ten tools from `dl.k8s.io`, `github.com`
+and `raw.githubusercontent.com` at boot, several resolving `latest` at run time. Pin
+everything, source it from Caddy, and treat any egress during a build as a defect.
 
 ## nkp-platform — the GitOps repo
 
@@ -382,6 +435,11 @@ everything we own; consume Nutanix's catalogs as above.
 
 ## Networking
 
+VLAN 82 is confirmed on the UDM: `192.168.82.0/24`, gateway `.254`, trunked to the blades,
+DHCP scope `.100–.200` with Auto Default Gateway and Auto DNS Server enabled. The
+control-plane VIP (`.10`) and the MetalLB range (`.20–.39`) sit outside that scope, as NKP
+requires. Full plan in [Landing Zone §4.3](landing_zone.md#43-address-plan).
+
 | Concern                 | Decision                                                                             |
 | ----------------------- | ------------------------------------------------------------------------------------ |
 | Node addressing         | **External DHCP** (UDM), not Nutanix IPAM. VLAN 82 stays VLAN-only                   |
@@ -585,30 +643,31 @@ cluster CA** — DoD PKI for the cluster's own CA is outside NKP.
 
 ## Decision register
 
-| #   | Area             | Decision                                                                                                             |
-| --- | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 1   | Fleet UI         | Rancher **dropped** → Kommander. Removes the Fleet-vs-Flux question                                                  |
-| 2   | Terraform's role | Renders inputs and validates prerequisites; `lz-cli` hook executes the CLI                                           |
-| 3   | Bastion          | **Cattle** — Terraform-built, assets from Caddy, rebuildable on demand                                               |
-| 4   | Cluster access   | Kubeconfig SOPS-encrypted in git                                                                                     |
-| 5   | Git artefact     | Values + renderer; `NKPCluster` rendered in-cluster                                                                  |
-| 6   | Tooling          | **Kustomize everywhere**; `HelmRelease` only as a payload kind                                                       |
-| 7   | Layout           | base / components / overlay, with `replacements` fan-out                                                             |
-| 8   | Service LB       | MetalLB on management (forced); workload clusters may omit the addon and use F5 CIS                                  |
-| 9   | Registry cache   | Enable `addons.registry` CNCF Distribution per cluster                                                               |
-| 10  | Catalogs         | Consumed declaratively via labelled `OCIRepository` + `AppDeployment`; **digests pinned**                            |
-| 11  | SOE delivery     | Kommander `AppDeployment` + `clusterSelector`                                                                        |
-| 12  | Repos            | **Four**: `lz-paas`, `tf-ntnx-nkp`, `nkp-platform`, `nkp-images`                                                     |
-| 13  | Images           | NIB for CPU **and** GPU — one pipeline, one release process                                                          |
-| 14  | OS               | Rocky Day 1; RHEL later. No FIPS Day 1                                                                               |
-| 15  | Secrets          | ESO + vault; SOPS retained for Tier 0 and the kubeconfig                                                             |
-| 16  | Self-service     | The PR flow is the API; front door deferred                                                                          |
-| 17  | Identity         | Dex (built in) ← Ping via OIDC, SAML fallback                                                                        |
-| 18  | Git host         | GitHub SaaS (lab) / GHE (production); NKP built-in to be evaluated                                                   |
-| 19  | Pod CIDR         | `172.20.0.0/16` — irreversible after creation                                                                        |
-| 20  | Node addressing  | External DHCP, not Nutanix IPAM                                                                                      |
-| 21  | Validation       | Offline layers 0–3 via vendored CAREN CRDs; layer 4 on the bastion runner                                            |
-| 22  | Hardening        | `base` sets `encryptionAtRest`, `podSecurityAdmission: restricted`, `protectKernelDefaults`, `seccompDefault`, `ntp` |
+| #   | Area             | Decision                                                                                                                       |
+| --- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Fleet UI         | Rancher **dropped** → Kommander. Removes the Fleet-vs-Flux question                                                            |
+| 2   | Terraform's role | Renders inputs and validates prerequisites; `lz-cli` hook executes the CLI                                                     |
+| 3   | Bastion          | **Cattle** — Terraform-built, assets from Caddy, rebuildable on demand                                                         |
+| 4   | Cluster access   | Kubeconfig SOPS-encrypted in git                                                                                               |
+| 5   | Git artefact     | Values + renderer; `NKPCluster` rendered in-cluster                                                                            |
+| 6   | Tooling          | **Kustomize everywhere**; `HelmRelease` only as a payload kind                                                                 |
+| 7   | Layout           | base / components / overlay, with `replacements` fan-out                                                                       |
+| 8   | Service LB       | MetalLB on management (forced); workload clusters may omit the addon and use F5 CIS                                            |
+| 9   | Registry cache   | Enable `addons.registry` CNCF Distribution per cluster                                                                         |
+| 10  | Catalogs         | Consumed declaratively via labelled `OCIRepository` + `AppDeployment`; **digests pinned**                                      |
+| 11  | SOE delivery     | Kommander `AppDeployment` + `clusterSelector`                                                                                  |
+| 12  | Repos            | **Four**: `lz-paas`, `tf-ntnx-nkp`, `nkp-platform`, `nkp-images`                                                               |
+| 13  | Images           | NIB for CPU **and** GPU — one pipeline, one release process                                                                    |
+| 14  | OS               | Rocky Day 1; RHEL later. No FIPS Day 1                                                                                         |
+| 15  | Secrets          | ESO + vault; SOPS retained for Tier 0 and the kubeconfig                                                                       |
+| 16  | Self-service     | The PR flow is the API; front door deferred                                                                                    |
+| 17  | Identity         | Dex (built in) ← Ping via OIDC, SAML fallback                                                                                  |
+| 18  | Git host         | GitHub SaaS (lab) / GHE (production); NKP built-in to be evaluated                                                             |
+| 19  | Pod CIDR         | `172.20.0.0/16` — irreversible after creation                                                                                  |
+| 20  | Node addressing  | External DHCP, not Nutanix IPAM                                                                                                |
+| 21  | Validation       | Offline layers 0–3 via vendored CAREN CRDs; layer 4 on the bastion runner                                                      |
+| 22  | Hardening        | `base` sets `encryptionAtRest`, `podSecurityAdmission: restricted`, `protectKernelDefaults`, `seccompDefault`, `ntp`           |
+| 23  | Air-gap          | **`--airgapped=true` always**, hard-coded in the renderer. `${BUNDLE_FLAGS}` (NCR), never alongside `${REGISTRY_MIRROR_FLAGS}` |
 
 ## ADR 0003 disposition
 

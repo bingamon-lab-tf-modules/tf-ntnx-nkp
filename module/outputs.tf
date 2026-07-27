@@ -22,6 +22,11 @@ output "bootstrap_script" {
   value       = local.bootstrap_script
 }
 
+output "upgrade_script" {
+  description = "Rendered 6-step nkp upgrade shell script"
+  value       = local.upgrade_script
+}
+
 ##################################################
 # Aggregate Output (spec §7.6 contract)
 ##################################################
@@ -37,5 +42,6 @@ output "outputs" {
     }
     prerequisites    = local.prerequisites
     bootstrap_script = local.bootstrap_script
+    upgrade_script   = local.upgrade_script
   }
 }

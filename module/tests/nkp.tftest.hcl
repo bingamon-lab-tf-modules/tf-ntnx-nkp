@@ -192,3 +192,61 @@ run "bootstrap_script_profile_full" {
     error_message = "Expected profile full to render --worker-replicas=4"
   }
 }
+
+run "upgrade_script_valid" {
+  command = plan
+
+  variables {
+    cluster_name           = "nkp-mgmt-01"
+    profile                = "small"
+    prism_central_endpoint = "pc.lab.local"
+    control_plane_vip      = "192.168.82.10"
+    prism_element_cluster  = "pe-cluster-01"
+    control_plane_subnet   = "vlan82-cp"
+    worker_subnet          = "vlan82-worker"
+    csi_storage_container  = "csi-container-01"
+    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
+    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
+    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+  }
+
+  assert {
+    condition     = can(regex("nkp upgrade capi-components", output.upgrade_script))
+    error_message = "Expected upgrade_script to contain step 1: nkp upgrade capi-components"
+  }
+
+  assert {
+    condition     = can(regex("nkp upgrade cluster nutanix --vm-image=\"rocky-9.4-kube-v1.30.5\"", output.upgrade_script))
+    error_message = "Expected upgrade_script to contain step 2: nkp upgrade cluster nutanix with --vm-image"
+  }
+
+  assert {
+    condition     = can(regex("nkp upgrade kommander", output.upgrade_script))
+    error_message = "Expected upgrade_script to contain step 3: nkp upgrade kommander"
+  }
+
+  assert {
+    condition     = can(regex("nkp upgrade workspace \"nkp-mgmt-01\"", output.upgrade_script))
+    error_message = "Expected upgrade_script to contain step 4: nkp upgrade workspace"
+  }
+
+  assert {
+    condition     = can(regex("nkp upgrade addons", output.upgrade_script))
+    error_message = "Expected upgrade_script to contain step 5: nkp upgrade addons"
+  }
+
+  assert {
+    condition     = can(regex("nkp upgrade catalogapp", output.upgrade_script))
+    error_message = "Expected upgrade_script to contain step 6: nkp upgrade catalogapp"
+  }
+
+  assert {
+    condition     = can(regex("(?s)nkp upgrade capi-components.*nkp upgrade cluster nutanix.*nkp upgrade kommander.*nkp upgrade workspace.*nkp upgrade addons.*nkp upgrade catalogapp", output.upgrade_script))
+    error_message = "Expected 6 upgrade commands in exact sequential order"
+  }
+
+  assert {
+    condition     = output.outputs.upgrade_script == output.upgrade_script
+    error_message = "Expected aggregate output.outputs.upgrade_script to match top-level output"
+  }
+}

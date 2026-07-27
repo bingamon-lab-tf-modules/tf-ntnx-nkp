@@ -87,4 +87,17 @@ locals {
       --airgapped=true${local.bundle_flags != "" ? " \\\n  ${local.bundle_flags}" : ""}${local.app_flags != "" ? " \\\n  ${local.app_flags}" : ""}
   EOF
   )
+  # Rendered 6-step nkp upgrade shell script
+  upgrade_script = trimspace(<<-EOF
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    nkp upgrade capi-components
+    nkp upgrade cluster nutanix --vm-image="${var.worker_vm_image}"
+    nkp upgrade kommander
+    nkp upgrade workspace "${var.cluster_name}"
+    nkp upgrade addons
+    nkp upgrade catalogapp
+  EOF
+  )
 }

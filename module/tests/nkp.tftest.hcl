@@ -7,70 +7,119 @@ provider "nutanix" {
   wait_timeout = 1
 }
 
+variables {
+  cluster_name           = "nkp-mgmt-01"
+  profile                = "small"
+  prism_central_endpoint = "pc.lab.local"
+  control_plane_vip      = "192.168.82.10"
+  prism_element_cluster  = "pe-cluster-01"
+  control_plane_subnet   = "vlan82-cp"
+  worker_subnet          = "vlan82-worker"
+  csi_storage_container  = "csi-container-01"
+  load_balancer_ip_range = "192.168.82.20-192.168.82.39"
+  control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
+  worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+}
+
 run "nkp_summary_valid" {
   command = plan
 
+  assert {
+    condition     = output.nkp_summary.cluster_name == "nkp-mgmt-01"
+    error_message = "Expected top-level nkp_summary.cluster_name to be nkp-mgmt-01"
+  }
+
+  assert {
+    condition     = output.nkp_summary.profile == "small"
+    error_message = "Expected top-level nkp_summary.profile to be small"
+  }
+
+  assert {
+    condition     = output.nkp_summary.pod_cidr == "172.20.0.0/16"
+    error_message = "Expected top-level nkp_summary.pod_cidr to be default 172.20.0.0/16"
+  }
+
+  assert {
+    condition     = output.nkp_summary.service_cidr == "10.96.0.0/12"
+    error_message = "Expected top-level nkp_summary.service_cidr to be default 10.96.0.0/12"
+  }
+
+  assert {
+    condition     = output.outputs.nkp_summary.cluster_name == output.nkp_summary.cluster_name
+    error_message = "Expected aggregate output.outputs.nkp_summary to match top-level nkp_summary"
+  }
+
+  assert {
+    condition     = output.prerequisites.prism_central_endpoint == "pc.lab.local"
+    error_message = "Expected top-level prerequisites FQDN endpoint to match pc.lab.local"
+  }
+
+  assert {
+    condition     = output.prerequisites.prism_element_cluster.name == "pe-cluster-01"
+    error_message = "Expected top-level prerequisites Prism Element cluster name to match"
+  }
+
+  assert {
+    condition     = output.prerequisites.prism_element_cluster.uuid == "pe-cluster-01"
+    error_message = "Expected top-level prerequisites Prism Element cluster UUID to match fallback name"
+  }
+
+  assert {
+    condition     = output.prerequisites.control_plane_subnet.name == "vlan82-cp"
+    error_message = "Expected top-level prerequisites control plane subnet name to match"
+  }
+
+  assert {
+    condition     = output.prerequisites.control_plane_subnet.uuid == "vlan82-cp"
+    error_message = "Expected top-level prerequisites control plane subnet UUID to match fallback name"
+  }
+
+  assert {
+    condition     = output.prerequisites.worker_subnet.name == "vlan82-worker"
+    error_message = "Expected top-level prerequisites worker subnet name to match"
+  }
+
+  assert {
+    condition     = output.prerequisites.worker_subnet.uuid == "vlan82-worker"
+    error_message = "Expected top-level prerequisites worker subnet UUID to match fallback name"
+  }
+
+  assert {
+    condition     = output.prerequisites.csi_storage_container.name == "csi-container-01"
+    error_message = "Expected top-level prerequisites storage container name to match"
+  }
+
+  assert {
+    condition     = output.prerequisites.csi_storage_container.uuid == "csi-container-01"
+    error_message = "Expected top-level prerequisites storage container UUID to match fallback name"
+  }
+
+  assert {
+    condition     = output.outputs.prerequisites.prism_central_endpoint == output.prerequisites.prism_central_endpoint
+    error_message = "Expected aggregate output.outputs.prerequisites to match top-level prerequisites"
+  }
+}
+
+run "custom_service_cidr" {
+  command = plan
+
   variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "small"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+    service_cidr = "10.100.0.0/16"
   }
 
   assert {
-    condition     = output.outputs.nkp_summary.cluster_name == "nkp-mgmt-01"
-    error_message = "Expected cluster_name to be nkp-mgmt-01"
+    condition     = output.nkp_summary.service_cidr == "10.100.0.0/16"
+    error_message = "Expected top-level nkp_summary.service_cidr to match custom service_cidr"
   }
 
   assert {
-    condition     = output.outputs.nkp_summary.profile == "small"
-    error_message = "Expected profile to be small"
-  }
-
-  assert {
-    condition     = output.outputs.prerequisites.prism_element_cluster.name == "pe-cluster-01"
-    error_message = "Expected Prism Element cluster name to match"
-  }
-
-  assert {
-    condition     = output.outputs.prerequisites.control_plane_subnet.name == "vlan82-cp"
-    error_message = "Expected control plane subnet name to match"
-  }
-
-  assert {
-    condition     = output.outputs.prerequisites.worker_subnet.name == "vlan82-worker"
-    error_message = "Expected worker subnet name to match"
-  }
-
-  assert {
-    condition     = output.outputs.prerequisites.csi_storage_container.name == "csi-container-01"
-    error_message = "Expected storage container name to match"
+    condition     = can(regex("--kubernetes-service-cidr=.*10\\.100\\.0\\.0/16", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain custom service CIDR 10.100.0.0/16"
   }
 }
 
 run "nkp_bootstrap_script_valid" {
   command = plan
-
-  variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "small"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
-  }
 
   assert {
     condition     = can(regex("--airgapped=true", output.bootstrap_script))
@@ -92,18 +141,7 @@ run "bootstrap_script_profile_small" {
   command = plan
 
   variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "small"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
-    bundle_paths           = ["/tmp/kommander.tar", "/tmp/konvoy.tar"]
+    bundle_paths = ["/tmp/kommander.tar", "/tmp/konvoy.tar"]
   }
 
   assert {
@@ -132,6 +170,16 @@ run "bootstrap_script_profile_small" {
   }
 
   assert {
+    condition     = can(regex("--app-options=\"rook-ceph\\.enabled=false,velero\\.enabled=false,logging-operator\\.enabled=false,kube-prometheus-stack\\.enabled=false\"", output.bootstrap_script))
+    error_message = "Expected profile small to render disabled app-options"
+  }
+
+  assert {
+    condition     = can(regex("--disable-apps=\"rook-ceph,velero,logging,monitoring\"", output.bootstrap_script))
+    error_message = "Expected profile small to render disable-apps flag"
+  }
+
+  assert {
     condition     = output.outputs.bootstrap_script == output.bootstrap_script
     error_message = "Expected aggregate output.outputs.bootstrap_script to match top-level output"
   }
@@ -141,41 +189,27 @@ run "bootstrap_script_profile_full" {
   command = plan
 
   variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "full"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+    profile = "full"
   }
 
   assert {
     condition     = can(regex("--worker-replicas=4", output.bootstrap_script))
     error_message = "Expected profile full to render --worker-replicas=4"
   }
+
+  assert {
+    condition     = !can(regex("--app-options", output.bootstrap_script))
+    error_message = "Expected profile full to not include --app-options flag"
+  }
+
+  assert {
+    condition     = !can(regex("--disable-apps", output.bootstrap_script))
+    error_message = "Expected profile full to not include --disable-apps flag"
+  }
 }
 
 run "upgrade_script_valid" {
   command = plan
-
-  variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "small"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
-  }
 
   assert {
     condition     = can(regex("nkp upgrade capi-components", output.upgrade_script))
@@ -222,19 +256,8 @@ run "bastion_cloud_init_valid" {
   command = plan
 
   variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "small"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
-    ca_certificates        = ["-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----"]
-    bastion_ssh_keys       = ["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ... admin@lab"]
+    ca_certificates  = ["-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----"]
+    bastion_ssh_keys = ["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ... admin@lab"]
   }
 
   assert {

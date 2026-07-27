@@ -33,11 +33,11 @@ output "bastion_cloud_init" {
 }
 
 ##################################################
-# Aggregate Output (spec §7.6 contract)
+# Aggregate Output (spec §4 contract)
 ##################################################
 
 output "outputs" {
-  description = "Aggregate of all module outputs (spec §7.6 contract, consumed by the landing zone as module.<x>.outputs)."
+  description = "Aggregate of all module outputs (spec §4 contract, consumed by the landing zone as module.<x>.outputs)."
   value = {
     nkp_summary = {
       cluster_name = var.cluster_name

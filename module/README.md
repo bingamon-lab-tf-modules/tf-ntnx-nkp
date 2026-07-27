@@ -62,7 +62,7 @@ No modules.
 | <a name="output_bastion_cloud_init"></a> [bastion\_cloud\_init](#output\_bastion\_cloud\_init) | Rendered Bastion VM cloud-init user-data YAML string |
 | <a name="output_bootstrap_script"></a> [bootstrap\_script](#output\_bootstrap\_script) | Rendered nkp create cluster nutanix shell script |
 | <a name="output_nkp_summary"></a> [nkp\_summary](#output\_nkp\_summary) | Summary of NKP cluster configuration. |
-| <a name="output_outputs"></a> [outputs](#output\_outputs) | Aggregate of all module outputs (spec §7.6 contract, consumed by the landing zone as module.<x>.outputs). |
+| <a name="output_outputs"></a> [outputs](#output\_outputs) | Aggregate of all module outputs (spec §4 contract, consumed by the landing zone as module.<x>.outputs). |
 | <a name="output_prerequisites"></a> [prerequisites](#output\_prerequisites) | Map of validated Nutanix cluster, subnet, and container prerequisites. |
 | <a name="output_upgrade_script"></a> [upgrade\_script](#output\_upgrade\_script) | Rendered 6-step nkp upgrade shell script |
 <!-- END_TF_DOCS -->

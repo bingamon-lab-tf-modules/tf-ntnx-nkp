@@ -59,4 +59,32 @@ locals {
       uuid = local.csi_storage_container_uuid
     }
   }
+  # Profile-based sizing & application configuration
+  worker_replicas = var.profile == "small" ? 3 : 4
+  app_flags       = var.profile == "small" ? "--app-options=\"rook-ceph.enabled=false,velero.enabled=false,logging-operator.enabled=false,kube-prometheus-stack.enabled=false\" --disable-apps=\"rook-ceph,velero,logging,monitoring\"" : ""
+  bundle_flags    = length(var.bundle_paths) > 0 ? "--bundle=${join(",", var.bundle_paths)}" : ""
+
+  # Rendered nkp create cluster nutanix bootstrap script
+  bootstrap_script = trimspace(<<-EOF
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    nkp create cluster nutanix \
+      --cluster-name="${var.cluster_name}" \
+      --endpoint="${var.prism_central_endpoint}" \
+      --control-plane-endpoint-ip="${var.control_plane_vip}" \
+      --control-plane-prism-element-cluster="${var.prism_element_cluster}" \
+      --control-plane-subnets="${var.control_plane_subnet}" \
+      --control-plane-vm-image="${var.control_plane_vm_image}" \
+      --worker-prism-element-cluster="${var.prism_element_cluster}" \
+      --worker-subnets="${var.worker_subnet}" \
+      --worker-vm-image="${var.worker_vm_image}" \
+      --worker-replicas=${local.worker_replicas} \
+      --csi-storage-container="${var.csi_storage_container}" \
+      --kubernetes-service-load-balancer-ip-range="${var.load_balancer_ip_range}" \
+      --kubernetes-pod-network-cidr="${var.pod_cidr}" \
+      --kubernetes-service-cidr="${var.service_cidr}" \
+      --airgapped=true${local.bundle_flags != "" ? " \\\n  ${local.bundle_flags}" : ""}${local.app_flags != "" ? " \\\n  ${local.app_flags}" : ""}
+  EOF
+  )
 }

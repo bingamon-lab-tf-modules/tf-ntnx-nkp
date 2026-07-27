@@ -16,7 +16,9 @@ A description of the module goes here.
 
 ## Providers
 
-No providers.
+| Name | Version |
+|------|---------|
+| <a name="provider_nutanix"></a> [nutanix](#provider\_nutanix) | 2.4.2 |
 
 ## Modules
 
@@ -24,7 +26,11 @@ No modules.
 
 ## Resources
 
-No resources.
+| Name | Type |
+|------|------|
+| [nutanix_clusters_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/clusters_v2) | data source |
+| [nutanix_storage_containers_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/storage_containers_v2) | data source |
+| [nutanix_subnets_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/subnets_v2) | data source |
 
 ## Inputs
 
@@ -53,4 +59,5 @@ No resources.
 |------|-------------|
 | <a name="output_nkp_summary"></a> [nkp\_summary](#output\_nkp\_summary) | Summary of NKP cluster configuration. |
 | <a name="output_outputs"></a> [outputs](#output\_outputs) | Aggregate of all module outputs (spec §7.6 contract, consumed by the landing zone as module.<x>.outputs). |
+| <a name="output_prerequisites"></a> [prerequisites](#output\_prerequisites) | Map of validated Nutanix cluster, subnet, and container prerequisites. |
 <!-- END_TF_DOCS -->

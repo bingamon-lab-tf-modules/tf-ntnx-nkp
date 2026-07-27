@@ -33,6 +33,26 @@ run "nkp_summary_valid" {
     condition     = output.outputs.nkp_summary.profile == "small"
     error_message = "Expected profile to be small"
   }
+
+  assert {
+    condition     = output.outputs.prerequisites.prism_element_cluster.name == "pe-cluster-01"
+    error_message = "Expected Prism Element cluster name to match"
+  }
+
+  assert {
+    condition     = output.outputs.prerequisites.control_plane_subnet.name == "vlan82-cp"
+    error_message = "Expected control plane subnet name to match"
+  }
+
+  assert {
+    condition     = output.outputs.prerequisites.worker_subnet.name == "vlan82-worker"
+    error_message = "Expected worker subnet name to match"
+  }
+
+  assert {
+    condition     = output.outputs.prerequisites.csi_storage_container.name == "csi-container-01"
+    error_message = "Expected storage container name to match"
+  }
 }
 
 run "invalid_cluster_name" {

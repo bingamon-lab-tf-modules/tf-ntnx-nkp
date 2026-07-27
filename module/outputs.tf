@@ -12,6 +12,11 @@ output "nkp_summary" {
   }
 }
 
+output "prerequisites" {
+  description = "Map of validated Nutanix cluster, subnet, and container prerequisites."
+  value       = local.prerequisites
+}
+
 ##################################################
 # Aggregate Output (spec §7.6 contract)
 ##################################################
@@ -25,5 +30,6 @@ output "outputs" {
       pod_cidr     = var.pod_cidr
       service_cidr = var.service_cidr
     }
+    prerequisites = local.prerequisites
   }
 }

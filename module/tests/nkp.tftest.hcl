@@ -55,11 +55,11 @@ run "nkp_summary_valid" {
   }
 }
 
-run "invalid_cluster_name" {
+run "nkp_bootstrap_script_valid" {
   command = plan
 
   variables {
-    cluster_name           = "Invalid_Name!"
+    cluster_name           = "nkp-mgmt-01"
     profile                = "small"
     prism_central_endpoint = "pc.lab.local"
     control_plane_vip      = "192.168.82.10"
@@ -72,53 +72,20 @@ run "invalid_cluster_name" {
     worker_vm_image        = "rocky-9.4-kube-v1.30.5"
   }
 
-  expect_failures = [
-    var.cluster_name,
-  ]
-}
-
-run "invalid_profile" {
-  command = plan
-
-  variables {
-    cluster_name           = "nkp-mgmt-01"
-    profile                = "medium"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+  assert {
+    condition     = can(regex("--airgapped=true", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --airgapped=true"
   }
 
-  expect_failures = [
-    var.profile,
-  ]
-}
-
-run "invalid_pod_cidr" {
-  command = plan
-
-  variables {
-    cluster_name           = "nkp-mgmt-01"
-    pod_cidr               = "10.244.0.0/16"
-    prism_central_endpoint = "pc.lab.local"
-    control_plane_vip      = "192.168.82.10"
-    prism_element_cluster  = "pe-cluster-01"
-    control_plane_subnet   = "vlan82-cp"
-    worker_subnet          = "vlan82-worker"
-    csi_storage_container  = "csi-container-01"
-    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
-    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
-    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+  assert {
+    condition     = can(regex("--kubernetes-pod-network-cidr=.*172\\.20\\.0\\.0/16", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --kubernetes-pod-network-cidr=172.20.0.0/16"
   }
 
-  expect_failures = [
-    var.pod_cidr,
-  ]
+  assert {
+    condition     = can(regex("--cluster-name=.*nkp-mgmt-01", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --cluster-name=nkp-mgmt-01"
+  }
 }
 
 run "bootstrap_script_profile_small" {

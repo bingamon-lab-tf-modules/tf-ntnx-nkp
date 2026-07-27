@@ -27,6 +27,11 @@ output "upgrade_script" {
   value       = local.upgrade_script
 }
 
+output "bastion_cloud_init" {
+  description = "Rendered Bastion VM cloud-init user-data YAML string"
+  value       = local.bastion_cloud_init
+}
+
 ##################################################
 # Aggregate Output (spec §7.6 contract)
 ##################################################
@@ -40,8 +45,9 @@ output "outputs" {
       pod_cidr     = var.pod_cidr
       service_cidr = var.service_cidr
     }
-    prerequisites    = local.prerequisites
-    bootstrap_script = local.bootstrap_script
-    upgrade_script   = local.upgrade_script
+    prerequisites      = local.prerequisites
+    bootstrap_script   = local.bootstrap_script
+    upgrade_script     = local.upgrade_script
+    bastion_cloud_init = local.bastion_cloud_init
   }
 }

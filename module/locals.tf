@@ -100,4 +100,50 @@ locals {
     nkp upgrade catalogapp
   EOF
   )
+
+  # Rendered Bastion VM cloud-init user-data YAML string
+  bastion_cloud_init = trimspace(<<-EOF
+    #cloud-config
+    hostname: ${var.cluster_name}-bastion
+    ${length(var.bastion_ssh_keys) > 0 ? "ssh_authorized_keys:\n${join("\n", [for key in var.bastion_ssh_keys : "  - ${key}"])}" : "# ssh_authorized_keys: none configured"}
+    write_files:
+      - path: /etc/pki/ca-trust/source/anchors/internal-ca.crt
+        permissions: '0644'
+        content: |
+          ${indent(10, length(var.ca_certificates) > 0 ? join("\n", var.ca_certificates) : "# Internal CA Certificate Trust Bundle\n# Placeholder / No custom CA certificates supplied")}
+      - path: /usr/local/bin/unpack-airgap-bundles.sh
+        permissions: '0755'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "Initializing air-gapped bundle unpacking for NKP management cluster ${var.cluster_name}..."
+          BUNDLE_DIR="/var/tmp/nkp-bundles"
+          mkdir -p "$${BUNDLE_DIR}"
+          for bundle in "$${BUNDLE_DIR}"/*.tar "$${BUNDLE_DIR}"/*.tar.gz /tmp/*.tar; do
+            if [ -f "$${bundle}" ]; then
+              echo "Unpacking air-gapped bundle: $${bundle}"
+              tar -xvf "$${bundle}" -C "$${BUNDLE_DIR}/" || true
+            fi
+          done
+          echo "Bundle unpacking completed."
+      - path: /etc/profile.d/sops-env.sh
+        permissions: '0644'
+        content: |
+          # SOPS Decryption Tools & Environment Configuration
+          export SOPS_AGE_KEY_FILE="$${HOME}/.config/sops/age/keys.txt"
+          export SOPS_DECRYPT_TOOL="sops"
+          export NKP_CLUSTER_NAME="${var.cluster_name}"
+          export PRISM_CENTRAL_ENDPOINT="${var.prism_central_endpoint}"
+    packages:
+      - sops
+      - age
+      - ca-certificates
+      - tar
+      - gzip
+    runcmd:
+      - update-ca-trust || update-ca-certificates || true
+      - chmod +x /usr/local/bin/unpack-airgap-bundles.sh
+      - /usr/local/bin/unpack-airgap-bundles.sh
+  EOF
+  )
 }

@@ -611,25 +611,24 @@ every non-secret user attribute as sensitive and make plan output unreadable —
 The full architectural decision register lives in [Design](design.md#decision-register). The
 subset that bears on the Nutanix prerequisites:
 
-| Decision          | Outcome                                                                         |
-| ----------------- | ------------------------------------------------------------------------------- |
-| Licence tier      | **Ultimate**                                                                    |
-| Node addressing   | **External DHCP** (UDM), not Nutanix IPAM                                       |
-| Pod CIDR          | **`172.20.0.0/16`** — irreversible after cluster creation                       |
-| Service CIDR      | Default `10.96.0.0/12` — no collision                                           |
-| Registry          | **Internal registry mirror** (NCR) via `--bundle`; no Harbor                    |
-| Per-cluster cache | `addons.registry`, `provider: CNCF Distribution` — enabled                      |
-| Node OS           | **Rocky** Day 1, RHEL later. No FIPS Day 1                                      |
-| Node images       | **NIB for CPU and GPU** — one pipeline ([Design](design.md#images--nkp-images)) |
-| Bastion           | **Declared in lz-paas** `compute_databases.virtual_machines`, as cattle         |
-| Service LB        | MetalLB on management; workload clusters may use F5 CIS                         |
+| Decision            | Outcome                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| Licence tier        | **Ultimate**                                                                               |
+| Architecture        | **Pure OpenTofu Renderer + `lz-cli` Python Hook** on break-glass NixOS Bastion             |
+| Environment Profile | **Configurable `profile`** (`"small"` default for lab optimization; `"full"` for Ultimate) |
+| Node addressing     | **External DHCP** (UDM), not Nutanix IPAM                                                  |
+| Pod CIDR            | **`172.20.0.0/16`** — validated by regex; irreversible after cluster creation              |
+| Service CIDR        | Default `10.96.0.0/12` — no collision                                                      |
+| Registry            | **Internal registry mirror** (NCR) via `--bundle`; no Harbor                               |
+| Per-cluster cache   | `addons.registry`, `provider: CNCF Distribution` — enabled                                 |
+| Node OS             | **Rocky** Day 1, RHEL later. No FIPS Day 1                                                 |
+| Node images         | **NIB for CPU and GPU** — one pipeline ([Design](design.md#images--nkp-images))            |
+| Bastion             | **Declared in `lz-paas`** as a break-glass NixOS host image; stateless cattle              |
+| Service LB          | MetalLB on management; workload clusters may use F5 CIS                                    |
 
 ### Still open
 
-1. **Full platform apps, or the Small Environment profile?** Recommend Small Environment for
-   a first build; it removes the Rook Ceph 4-worker / 190 GiB floor. Note this interacts with
-   Ultimate, which deploys `rook-ceph` and `velero` on key application.
-2. **Is NDK in scope?** Ultimate makes it available. If adopted, its own prerequisites apply
+1. **Is NDK in scope?** Ultimate makes it available. If adopted, its own prerequisites apply
    (§5.3).
 
 ## Open questions

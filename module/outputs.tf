@@ -17,6 +17,11 @@ output "prerequisites" {
   value       = local.prerequisites
 }
 
+output "bootstrap_script" {
+  description = "Rendered nkp create cluster nutanix shell script"
+  value       = local.bootstrap_script
+}
+
 ##################################################
 # Aggregate Output (spec §7.6 contract)
 ##################################################
@@ -30,6 +35,7 @@ output "outputs" {
       pod_cidr     = var.pod_cidr
       service_cidr = var.service_cidr
     }
-    prerequisites = local.prerequisites
+    prerequisites    = local.prerequisites
+    bootstrap_script = local.bootstrap_script
   }
 }

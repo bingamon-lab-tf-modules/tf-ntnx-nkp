@@ -120,3 +120,75 @@ run "invalid_pod_cidr" {
     var.pod_cidr,
   ]
 }
+
+run "bootstrap_script_profile_small" {
+  command = plan
+
+  variables {
+    cluster_name           = "nkp-mgmt-01"
+    profile                = "small"
+    prism_central_endpoint = "pc.lab.local"
+    control_plane_vip      = "192.168.82.10"
+    prism_element_cluster  = "pe-cluster-01"
+    control_plane_subnet   = "vlan82-cp"
+    worker_subnet          = "vlan82-worker"
+    csi_storage_container  = "csi-container-01"
+    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
+    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
+    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+    bundle_paths           = ["/tmp/kommander.tar", "/tmp/konvoy.tar"]
+  }
+
+  assert {
+    condition     = can(regex("--airgapped=true", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain hardcoded --airgapped=true"
+  }
+
+  assert {
+    condition     = can(regex("--kubernetes-pod-network-cidr=.*172\\.20\\.0\\.0/16", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain pod network CIDR 172.20.0.0/16"
+  }
+
+  assert {
+    condition     = can(regex("--kubernetes-service-cidr=.*10\\.96\\.0\\.0/12", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain service CIDR 10.96.0.0/12"
+  }
+
+  assert {
+    condition     = can(regex("--worker-replicas=3", output.bootstrap_script))
+    error_message = "Expected profile small to render --worker-replicas=3"
+  }
+
+  assert {
+    condition     = can(regex("--bundle=/tmp/kommander.tar,/tmp/konvoy.tar", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to render bundle paths"
+  }
+
+  assert {
+    condition     = output.outputs.bootstrap_script == output.bootstrap_script
+    error_message = "Expected aggregate output.outputs.bootstrap_script to match top-level output"
+  }
+}
+
+run "bootstrap_script_profile_full" {
+  command = plan
+
+  variables {
+    cluster_name           = "nkp-mgmt-01"
+    profile                = "full"
+    prism_central_endpoint = "pc.lab.local"
+    control_plane_vip      = "192.168.82.10"
+    prism_element_cluster  = "pe-cluster-01"
+    control_plane_subnet   = "vlan82-cp"
+    worker_subnet          = "vlan82-worker"
+    csi_storage_container  = "csi-container-01"
+    load_balancer_ip_range = "192.168.82.20-192.168.82.39"
+    control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
+    worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+  }
+
+  assert {
+    condition     = can(regex("--worker-replicas=4", output.bootstrap_script))
+    error_message = "Expected profile full to render --worker-replicas=4"
+  }
+}

@@ -56,3 +56,39 @@ run "invalid_pod_cidr" {
     var.pod_cidr,
   ]
 }
+
+run "invalid_control_plane_vip" {
+  command = plan
+
+  variables {
+    control_plane_vip = "invalid-ip"
+  }
+
+  expect_failures = [
+    var.control_plane_vip,
+  ]
+}
+
+run "invalid_load_balancer_ip_range" {
+  command = plan
+
+  variables {
+    load_balancer_ip_range = "invalid-range"
+  }
+
+  expect_failures = [
+    var.load_balancer_ip_range,
+  ]
+}
+
+run "invalid_service_cidr" {
+  command = plan
+
+  variables {
+    service_cidr = "invalid-cidr"
+  }
+
+  expect_failures = [
+    var.service_cidr,
+  ]
+}

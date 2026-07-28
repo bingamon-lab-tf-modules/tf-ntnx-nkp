@@ -1,5 +1,24 @@
 # NKP Infrastructure Module Specification — tf-ntnx-nkp
 
+> ## ⚠️ Corrections — 2026-07-28 architecture review
+>
+> The render-and-hook architecture in §1 is sound and stands. Three specifics below it do
+> not. Verified against the NKP v2.18 documentation set.
+>
+> | Section                         | Status                                                                                                                                                                                                                                                                                      |
+> | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | §2.2 profile sizing / app flags | **`--app-options` and `--disable-apps` have zero occurrences in the v2.18 documentation set.** Slimming Kommander is done with the Small Environment installer configuration.                                                                                                               |
+> | §4 `bastion_cloud_init`         | Superseded. The bastion is an ephemeral VM from a release-versioned image with the CLI and bundles **baked in**, so the SOPS/age install and bundle-unpack steps are unnecessary.                                                                                                           |
+> | §5 six-step upgrade contract    | **Steps 4–6 fail as written.** A workspace name is not a cluster name; `nkp upgrade addons` takes a positional infrastructure provider (documented values do **not** include `nutanix` — verify against the binary); `nkp upgrade catalogapp` requires `<appdeployment-name> --workspace=`. |
+> | §6 Tier 0 secrets               | Superseded. Three Prism Central accounts split by function — `nkp-capx` (management cluster only), `nkp-csi`, `nkp-ccm` — none bound to Prism Central Admin.                                                                                                                                |
+>
+> Also note this module's published interface has **diverged from its caller**: `lz-paas`
+> pins `v0.2.2` and passes `clusters` / `node_pools` / `registries`, none of which exist on
+> HEAD. Nothing catches it because the landing zone is gated off.
+>
+> Decisions: the `lz-paas` decision log, ADRs 0018–0021. Full findings and sequencing:
+> `lz-paas` → `docs/architecture/nkp_remediation.md`.
+
 Detailed specification for AI agents and infrastructure engineers implementing and maintaining the `tf-ntnx-nkp` OpenTofu module.
 
 **Target Environment:** NKP v2.18 · Ultimate Licence · Air-Gapped · Nutanix AHV

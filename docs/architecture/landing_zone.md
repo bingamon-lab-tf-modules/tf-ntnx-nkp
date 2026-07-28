@@ -611,20 +611,45 @@ every non-secret user attribute as sensitive and make plan output unreadable —
 The full architectural decision register lives in [Design](design.md#decision-register). The
 subset that bears on the Nutanix prerequisites:
 
-| Decision            | Outcome                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------ |
-| Licence tier        | **Ultimate**                                                                               |
-| Architecture        | **Pure OpenTofu Renderer + `lz-cli` Python Hook** on break-glass NixOS Bastion             |
-| Environment Profile | **Configurable `profile`** (`"small"` default for lab optimization; `"full"` for Ultimate) |
-| Node addressing     | **External DHCP** (UDM), not Nutanix IPAM                                                  |
-| Pod CIDR            | **`172.20.0.0/16`** — validated by regex; irreversible after cluster creation              |
-| Service CIDR        | Default `10.96.0.0/12` — no collision                                                      |
-| Registry            | **Internal registry mirror** (NCR) via `--bundle`; no Harbor                               |
-| Per-cluster cache   | `addons.registry`, `provider: CNCF Distribution` — enabled                                 |
-| Node OS             | **Rocky** Day 1, RHEL later. No FIPS Day 1                                                 |
-| Node images         | **NIB for CPU and GPU** — one pipeline ([Design](design.md#images--nkp-images))            |
-| Bastion             | **Declared in `lz-paas`** as a break-glass NixOS host image; stateless cattle              |
-| Service LB          | MetalLB on management; workload clusters may use F5 CIS                                    |
+| Decision            | Outcome                                                                                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Licence tier        | **Ultimate**                                                                                                                                                                                         |
+| Architecture        | **Pure OpenTofu Renderer + `lz-cli` Python Hook** on an ephemeral bastion                                                                                                                            |
+| Environment Profile | ⚠️ **See correction below** — the flags this rests on are undocumented                                                                                                                               |
+| Node addressing     | **External DHCP** (UDM), not Nutanix IPAM                                                                                                                                                            |
+| Pod CIDR            | **`172.20.0.0/16`** — validated by regex; irreversible after cluster creation                                                                                                                        |
+| Service CIDR        | Default `10.96.0.0/12` — no collision                                                                                                                                                                |
+| Registry            | ⚠️ **Superseded** — NCR via `--bundle` seeds NKP's own images only; the fleet additionally runs **Harbor** on the management cluster for catalogue artefacts, charts and mirrored third-party images |
+| Per-cluster cache   | `addons.registry`, `provider: CNCF Distribution` — enabled                                                                                                                                           |
+| Node OS             | **Rocky** Day 1, RHEL later. No FIPS Day 1                                                                                                                                                           |
+| Node images         | **NIB for CPU and GPU** — one pipeline, owned by `nkp-images`                                                                                                                                        |
+| Bastion             | ⚠️ **Superseded** — **not NixOS.** An ephemeral VM from a release-versioned RHEL-family image built by `nkp-images`, created on demand and destroyed after use                                       |
+| Service LB          | MetalLB on management; workload clusters may use F5 CIS                                                                                                                                              |
+
+### Corrections — 2026-07-28 architecture review
+
+Verified against the NKP v2.18 documentation set. See the `lz-paas` decision log
+(ADRs 0018–0021) and `lz-paas` → `docs/architecture/nkp_remediation.md` for the full set.
+
+- **Kubernetes version.** NKP v2.18 ships Kubernetes **1.35.2** and supports 1.35.x / 1.34.x.
+  Any `1.31.x` reference in this estate is wrong. The single version contract now lives in
+  `nkp-images`; no other repository pins it.
+- **`profile = "small"` rests on flags that do not exist.** `--app-options` and
+  `--disable-apps` have **zero occurrences** across the v2.18 documentation set. The
+  documented way to slim Kommander is the **Small Environment installer configuration**, not
+  CLI flags. The profile mechanism needs rebuilding on that.
+- **Bastion is RHEL-family, not NixOS.** It shares the node images' BaseOS lineage so that
+  the `nkp` CLI which bootstraps a cluster is the same binary that built its node images.
+  Note the naming collision: NIB's own `--bastion-host` / `--bastion-username` /
+  `--bastion-private-key-file` flags refer to a _different_ host used during air-gapped image
+  builds.
+- **`--source-image` is a required NIB input** and is missing from the estate's image design.
+- **Prism Central credentials must not be one account bound to Prism Central Admin.** CSI and
+  CCM run on workload clusters, so that credential would sit within reach of any tenant with
+  secret-read in a platform namespace, granting estate-wide VM and image deletion. Split into
+  `nkp-capx` (management cluster only), `nkp-csi` and `nkp-ccm`.
+- **Dangling references.** This document cites a `design.md` and a local
+  `decisions/0003-*.md`; neither exists in this repository. The decision log is in `lz-paas`.
 
 ### Still open
 

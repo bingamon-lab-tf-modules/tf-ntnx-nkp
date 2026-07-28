@@ -45,7 +45,7 @@ run "nkp_summary_valid" {
   }
 
   assert {
-    condition     = output.outputs.nkp_summary.cluster_name == output.nkp_summary.cluster_name
+    condition     = output.outputs.nkp_summary == output.nkp_summary
     error_message = "Expected aggregate output.outputs.nkp_summary to match top-level nkp_summary"
   }
 
@@ -95,7 +95,7 @@ run "nkp_summary_valid" {
   }
 
   assert {
-    condition     = output.outputs.prerequisites.prism_central_endpoint == output.prerequisites.prism_central_endpoint
+    condition     = output.outputs.prerequisites == output.prerequisites
     error_message = "Expected aggregate output.outputs.prerequisites to match top-level prerequisites"
   }
 }
@@ -134,6 +134,56 @@ run "nkp_bootstrap_script_valid" {
   assert {
     condition     = can(regex("--cluster-name=.*nkp-mgmt-01", output.bootstrap_script))
     error_message = "Expected bootstrap_script to contain --cluster-name=nkp-mgmt-01"
+  }
+
+  assert {
+    condition     = can(regex("--endpoint=.*pc\\.lab\\.local", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --endpoint=pc.lab.local"
+  }
+
+  assert {
+    condition     = can(regex("--control-plane-endpoint-ip=.*192\\.168\\.82\\.10", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --control-plane-endpoint-ip=192.168.82.10"
+  }
+
+  assert {
+    condition     = can(regex("--control-plane-prism-element-cluster=.*pe-cluster-01", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --control-plane-prism-element-cluster=pe-cluster-01"
+  }
+
+  assert {
+    condition     = can(regex("--control-plane-subnets=.*vlan82-cp", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --control-plane-subnets=vlan82-cp"
+  }
+
+  assert {
+    condition     = can(regex("--control-plane-vm-image=.*rocky-9\\.4-kube-v1\\.30\\.5", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --control-plane-vm-image=rocky-9.4-kube-v1.30.5"
+  }
+
+  assert {
+    condition     = can(regex("--worker-prism-element-cluster=.*pe-cluster-01", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --worker-prism-element-cluster=pe-cluster-01"
+  }
+
+  assert {
+    condition     = can(regex("--worker-subnets=.*vlan82-worker", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --worker-subnets=vlan82-worker"
+  }
+
+  assert {
+    condition     = can(regex("--worker-vm-image=.*rocky-9\\.4-kube-v1\\.30\\.5", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --worker-vm-image=rocky-9.4-kube-v1.30.5"
+  }
+
+  assert {
+    condition     = can(regex("--csi-storage-container=.*csi-container-01", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --csi-storage-container=csi-container-01"
+  }
+
+  assert {
+    condition     = can(regex("--kubernetes-service-load-balancer-ip-range=.*192\\.168\\.82\\.20-192\\.168\\.82\\.39", output.bootstrap_script))
+    error_message = "Expected bootstrap_script to contain --kubernetes-service-load-balancer-ip-range=192.168.82.20-192.168.82.39"
   }
 }
 
@@ -249,6 +299,20 @@ run "upgrade_script_valid" {
   assert {
     condition     = output.outputs.upgrade_script == output.upgrade_script
     error_message = "Expected aggregate output.outputs.upgrade_script to match top-level output"
+  }
+}
+
+run "bastion_cloud_init_defaults" {
+  command = plan
+
+  assert {
+    condition     = can(regex("# ssh_authorized_keys: none configured", output.bastion_cloud_init))
+    error_message = "Expected default fallback comment for empty bastion_ssh_keys"
+  }
+
+  assert {
+    condition     = can(regex("# Placeholder / No custom CA certificates supplied", output.bastion_cloud_init))
+    error_message = "Expected default fallback comment for empty ca_certificates"
   }
 }
 

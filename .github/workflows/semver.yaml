@@ -89,7 +89,7 @@ jobs:
     steps:
       - id: checkout_repository
         name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           lfs: false
           submodules: recursive
@@ -98,7 +98,7 @@ jobs:
       # Obtain the PR and extract the semver labels.
       - id: extract_labels
         name: Extract labels
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -242,7 +242,7 @@ jobs:
 
       - id: calculate_semver
         name: Calculate semantic version
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -348,7 +348,7 @@ jobs:
     steps:
       - id: checkout_repository
         name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           lfs: false
           submodules: recursive
@@ -426,7 +426,7 @@ jobs:
     steps:
       - id: checkout_repository
         name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           lfs: false
           submodules: recursive
@@ -523,7 +523,7 @@ jobs:
 
       - id: create_release
         name: Create GitHub release
-        uses: actions/github-script@v8
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

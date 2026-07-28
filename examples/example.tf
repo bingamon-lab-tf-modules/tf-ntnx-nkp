@@ -6,37 +6,25 @@ terraform {
   required_version = ">= 1.9.0"
 }
 
-# NKP: no provider support — parked (decision 551).
-#
-# There is no supported usage for this module yet. The nutanix/nutanix provider
-# ships zero nkp_* resources or data sources (verified through 2.4.3-beta1), so
-# the module creates nothing: it only declares typed clusters/node_pools/
-# registries variables guarded by check blocks that force them to stay empty,
-# plus an nkp_summary output with status = "PENDING_PROVIDER_SUPPORT". Defining
-# any NKP object today fails those checks by design.
-#
-# Once the provider ships real nkp_* resources, usage will look roughly like the
-# sketch below (attribute names are illustrative and will track the eventual
-# provider schema, not the placeholder variables):
-#
-# module "nkp" {
-#   source = "github.com/bingamon-lab-tf-modules/tf-ntnx-nkp/module"
-#
-#   clusters = {
-#     example = {
-#       name               = "example"
-#       kubernetes_version = "1.29.0"
-#       control_plane = {
-#         num_instances              = 3
-#         cpu                        = 4
-#         memory_mib                 = 8192
-#         disk_gib                   = 120
-#         network_uuid               = "<subnet-uuid>"
-#         prism_element_cluster_uuid = "<prism-element-uuid>"
-#       }
-#     }
-#   }
-# }
-#
-# Revisit trigger (decision 551): re-check the provider schema for nkp_*
-# resources on every nutanix/nutanix provider minor release.
+module "nkp_management_cluster" {
+  source = "../module"
+
+  cluster_name           = "nkp-mgmt"
+  profile                = "small"
+  prism_central_endpoint = "pc.lab.internal"
+  prism_element_cluster  = "pe-cluster-01"
+  control_plane_vip      = "192.168.82.10"
+  control_plane_subnet   = "vlan82-cp-subnet"
+  worker_subnet          = "vlan82-worker-subnet"
+  csi_storage_container  = "nkp-container"
+  load_balancer_ip_range = "192.168.82.20-192.168.82.39"
+  control_plane_vm_image = "centos-7.9-nkp-v2.18"
+  worker_vm_image        = "centos-7.9-nkp-v2.18"
+
+  pod_cidr     = "172.20.0.0/16"
+  service_cidr = "10.96.0.0/12"
+
+  bundle_paths     = ["/opt/bundles/kommander-image-bundle-v2.18.0.tar"]
+  ca_certificates  = ["-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"]
+  bastion_ssh_keys = ["ssh-ed25519 ssh-key-placeholder"]
+}

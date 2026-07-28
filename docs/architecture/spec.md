@@ -72,6 +72,7 @@ nkp create cluster nutanix \
   ```bash
   export BUNDLE_FLAGS="--bundle ./nkp-${NKP_VERSION}/container-images/kommander-image-bundle-${NKP_VERSION}.tar,./nkp-${NKP_VERSION}/container-images/konvoy-image-bundle-${NKP_VERSION}.tar"
   ```
+
 - **Mutual Exclusion Rule:** Do **NOT** pass `--registry-mirror-url` / `${REGISTRY_MIRROR_FLAGS}` simultaneously with `${BUNDLE_FLAGS}`.
 
 ---
@@ -120,6 +121,11 @@ variable "prism_central_endpoint" {
 variable "control_plane_vip" {
   type        = string
   description = "Static VIP for Kubernetes control plane"
+
+  validation {
+    condition     = can(regex("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$", var.control_plane_vip))
+    error_message = "Control plane VIP must be a valid IPv4 address."
+  }
 }
 
 variable "prism_element_cluster" {
@@ -145,6 +151,11 @@ variable "csi_storage_container" {
 variable "load_balancer_ip_range" {
   type        = string
   description = "MetalLB IP range (e.g. 192.168.82.20-192.168.82.39)"
+
+  validation {
+    condition     = can(regex("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}-(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$", var.load_balancer_ip_range))
+    error_message = "Load balancer IP range must be in start_ip-end_ip format."
+  }
 }
 
 variable "control_plane_vm_image" {
@@ -171,6 +182,11 @@ variable "service_cidr" {
   type        = string
   description = "Kubernetes Service Network CIDR"
   default     = "10.96.0.0/12"
+
+  validation {
+    condition     = can(cidrnetmask(var.service_cidr))
+    error_message = "Service CIDR must be a valid IPv4 CIDR prefix."
+  }
 }
 
 variable "bundle_paths" {

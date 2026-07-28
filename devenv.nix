@@ -313,7 +313,7 @@ in
         echo "Cleaning OpenTofu state in ''${DIR}"
         pushd "''${DIR}"
         # Remove any stale .terraform dir so there is no cached backend state.
-        rm -rf "''${DIR}/.terraform"
+        rm -rf .terraform
         popd
       '';
     };
@@ -335,7 +335,7 @@ in
         fi
         echo "Formatting OpenTofu code in ''${DIR}"
         pushd "''${DIR}"
-        tofu fmt -write=true "''${DIR}" || {
+        tofu fmt -write=true -recursive . || {
           echo "Failed to format OpenTofu code in ''${DIR}"
           exit 1
         }

@@ -251,17 +251,21 @@ jobs:
           echo "Format: ${{ steps.opentofu_format.outcome }}"
           echo "Validate: ${{ steps.opentofu_validate.outcome }}"
           echo "Docs: ${{ steps.opentofu_docs_check.outcome }}"
+          echo "Legacy Sweep: ${{ steps.opentofu_legacy_check.outcome }}"
           echo "Security: ${{ steps.opentofu_security_scan.outcome }}"
           echo "Lint: ${{ steps.opentofu_lint.outcome }}"
+          echo "Test Guard: ${{ steps.opentofu_test_guard.outcome }}"
           echo "Test: ${{ steps.opentofu_test.outcome }}"
 
           if [[ \
             "${{ steps.opentofu_init.outcome }}" == "success" && \
             "${{ steps.opentofu_format.outcome }}" == "success" && \
             "${{ steps.opentofu_docs_check.outcome }}" == "success" && \
+            "${{ steps.opentofu_legacy_check.outcome }}" == "success" && \
             "${{ steps.opentofu_validate.outcome }}" == "success" && \
             "${{ steps.opentofu_security_scan.outcome }}" == "success" && \
             "${{ steps.opentofu_lint.outcome }}" == "success" && \
+            "${{ steps.opentofu_test_guard.outcome }}" == "success" && \
             "${{ steps.opentofu_test.outcome }}" == "success" \
           ]]; \
           then
@@ -399,7 +403,7 @@ jobs:
         name: Publish Status
         if: always()
         run: |
-          if [[ "${{ steps.publish_artifactory.outcome }}" == "success" ]]; then
+          if [[ "${{ steps.publish_artifactory.outcome }}" == "success" || "${{ steps.publish_artifactory.outcome }}" == "skipped" ]]; then
             echo "✅ Module published successfully!"
             echo "📦 Version: ${{ steps.extract_version.outputs.VERSION_STRIPPED }}"
           else

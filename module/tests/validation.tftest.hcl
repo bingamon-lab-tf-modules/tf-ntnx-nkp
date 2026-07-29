@@ -19,6 +19,8 @@ variables {
   load_balancer_ip_range = "192.168.82.20-192.168.82.39"
   control_plane_vm_image = "rocky-9.4-kube-v1.30.5"
   worker_vm_image        = "rocky-9.4-kube-v1.30.5"
+  # Required: air-gapped KIND cannot pull konvoy-bootstrap from Docker Hub.
+  bootstrap_cluster_image = "./nkp-v2.18.0/konvoy-bootstrap-image-v2.18.0.tar"
 }
 
 run "invalid_cluster_name" {

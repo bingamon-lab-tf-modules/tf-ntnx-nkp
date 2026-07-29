@@ -10,14 +10,14 @@ A description of the module goes here.
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.10.0 |
 | <a name="requirement_nutanix"></a> [nutanix](#requirement\_nutanix) | ~> 2.4.2 |
 
 ## Providers
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="provider_nutanix"></a> [nutanix](#provider\_nutanix) | 2.4.2 |
 
 ## Modules
@@ -27,7 +27,7 @@ No modules.
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [nutanix_clusters_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/clusters_v2) | data source |
 | [nutanix_storage_containers_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/storage_containers_v2) | data source |
 | [nutanix_subnets_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/subnets_v2) | data source |
@@ -35,8 +35,9 @@ No modules.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_bastion_ssh_keys"></a> [bastion\_ssh\_keys](#input\_bastion\_ssh\_keys) | List of SSH public keys for Bastion host access | `list(string)` | `[]` | no |
+| <a name="input_bootstrap_cluster_image"></a> [bootstrap\_cluster\_image](#input\_bootstrap\_cluster\_image) | Path on the bastion to konvoy-bootstrap-image-<version>.tar. Required: the module is air-gapped, so the default Docker Hub pull cannot work. | `string` | n/a | yes |
 | <a name="input_bundle_paths"></a> [bundle\_paths](#input\_bundle\_paths) | List of local tarball bundle paths for air-gapped deployment | `list(string)` | `[]` | no |
 | <a name="input_ca_certificates"></a> [ca\_certificates](#input\_ca\_certificates) | List of PEM-encoded CA certificates to inject into the Bastion host trust store | `list(string)` | `[]` | no |
 | <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name of the NKP management cluster | `string` | n/a | yes |
@@ -58,7 +59,7 @@ No modules.
 ## Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | <a name="output_bastion_cloud_init"></a> [bastion\_cloud\_init](#output\_bastion\_cloud\_init) | Rendered Bastion VM cloud-init user-data YAML string |
 | <a name="output_bootstrap_script"></a> [bootstrap\_script](#output\_bootstrap\_script) | Rendered nkp create cluster nutanix shell script |
 | <a name="output_nkp_summary"></a> [nkp\_summary](#output\_nkp\_summary) | Summary of NKP cluster configuration. |

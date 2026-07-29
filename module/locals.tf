@@ -84,6 +84,8 @@ locals {
       --kubernetes-service-load-balancer-ip-range="${var.load_balancer_ip_range}" \
       --kubernetes-pod-network-cidr="${var.pod_cidr}" \
       --kubernetes-service-cidr="${var.service_cidr}" \
+      --bootstrap-cluster-image="${var.bootstrap_cluster_image}" \
+      --self-managed \
       --airgapped=true${local.bundle_flags != "" ? " \\\n  ${local.bundle_flags}" : ""}${local.app_flags != "" ? " \\\n  ${local.app_flags}" : ""}
   EOF
   )

@@ -118,6 +118,26 @@ variable "bundle_paths" {
   default     = []
 }
 
+# REQUIRED, deliberately no default.
+#
+# `nkp create cluster` builds its KIND bootstrap cluster from
+# `docker.io/mesosphere/konvoy-bootstrap:<version>` unless told otherwise. This module
+# hardcodes --airgapped=true, so that pull cannot succeed — KIND fails before any Nutanix
+# resource is touched, with an error that points at Docker Hub rather than at the air gap.
+#
+# The flag accepts a local path, and the tarball ships in the air-gapped bundle at
+# `nkp-<version>/konvoy-bootstrap-image-<version>.tar`. Making this required forces the
+# caller to supply it rather than discovering the failure during a 45-minute bootstrap.
+variable "bootstrap_cluster_image" {
+  type        = string
+  description = "Path on the bastion to konvoy-bootstrap-image-<version>.tar. Required: the module is air-gapped, so the default Docker Hub pull cannot work."
+
+  validation {
+    condition     = length(trimspace(var.bootstrap_cluster_image)) > 0
+    error_message = "bootstrap_cluster_image must be a non-empty path to the konvoy-bootstrap image tarball on the bastion."
+  }
+}
+
 variable "ca_certificates" {
   type        = list(string)
   description = "List of PEM-encoded CA certificates to inject into the Bastion host trust store"

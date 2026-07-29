@@ -621,9 +621,9 @@ subset that bears on the Nutanix prerequisites:
 | Service CIDR        | Default `10.96.0.0/12` — no collision                                                                                                                                                                |
 | Registry            | ⚠️ **Superseded** — NCR via `--bundle` seeds NKP's own images only; the fleet additionally runs **Harbor** on the management cluster for catalogue artefacts, charts and mirrored third-party images |
 | Per-cluster cache   | `addons.registry`, `provider: CNCF Distribution` — enabled                                                                                                                                           |
-| Node OS             | **Rocky** Day 1, RHEL later. No FIPS Day 1                                                                                                                                                           |
-| Node images         | **NIB for CPU and GPU** — one pipeline, owned by `nkp-images`                                                                                                                                        |
-| Bastion             | ⚠️ **Superseded** — **not NixOS.** An ephemeral VM from a release-versioned RHEL-family image built by `nkp-images`, created on demand and destroyed after use                                       |
+| Node OS             | ⚠️ **Superseded 2026-07-29** — **Ubuntu 24.04**, not Rocky. Rocky has no NVIDIA GPU support in the NKP matrix. No FIPS: the matrix shows FIPS only on RHEL 8.10/9.6                                  |
+| Node images         | ⚠️ **Superseded** — **vendor appliances** from the Nutanix Portal, not NIB-built, for the first few months. Air-gapped GPU is supported only with precompiled drivers, i.e. the portal `-gpu-` build |
+| Bastion             | ⚠️ **Superseded** — **not NixOS, and not RHEL.** An ephemeral VM from a release-versioned **Ubuntu 24.04** image built by `nkp-images` with Packer, created on demand and destroyed after use        |
 | Service LB          | MetalLB on management; workload clusters may use F5 CIS                                                                                                                                              |
 
 ### Corrections — 2026-07-28 architecture review
@@ -638,12 +638,26 @@ Verified against the NKP v2.18 documentation set. See the `lz-paas` decision log
   `--disable-apps` have **zero occurrences** across the v2.18 documentation set. The
   documented way to slim Kommander is the **Small Environment installer configuration**, not
   CLI flags. The profile mechanism needs rebuilding on that.
-- **Bastion is RHEL-family, not NixOS.** It shares the node images' BaseOS lineage so that
-  the `nkp` CLI which bootstraps a cluster is the same binary that built its node images.
+- **The fleet OS is Ubuntu 24.04 (2026-07-29).** Rocky shows `-` in the GPU, GPU-air-gapped
+  and vGPU columns of the NKP support matrix, so it cannot host NVIDIA workloads at all. Node
+  images now come from the Nutanix Portal as vendor appliances; `nkp-images` builds only the
+  bastion/runner image. Note the matrix does **not** support the wider claim that RHEL cannot
+  do GPU — RHEL 8.10/9.6 carry GPU, vGPU and FIPS — but Ubuntu is the accepted decision.
+  Consequence: **no FIPS on Ubuntu** per the matrix, and **NKP does not support AMD GPUs** at
+  all, so any ROCm plan is void.
+- **Bastion is Ubuntu 24.04, not NixOS and not RHEL.** It shares the node images' OS family,
+  and carries the same `nkp` CLI and bundles as the release that pins the node image — so
+  bootstrap and node content stay in step even though the node images are no longer built here.
+  It serves a second role as the bootstrap CI runner; see
+  [`lz-paas` ADR 0021](https://github.com/bingamon-lab/lz-paas/blob/trunk/docs/decisions/0021-ephemeral-bastion-vm.md)
+  as amended — one image, two lifecycles.
   Note the naming collision: NIB's own `--bastion-host` / `--bastion-username` /
   `--bastion-private-key-file` flags refer to a _different_ host used during air-gapped image
   builds.
-- **`--source-image` is a required NIB input** and is missing from the estate's image design.
+- **`--source-image` is optional in the CLI but mandatory in practice air-gapped** — "if the
+  image name is not provided then upstream base image for the OS will be downloaded", and there
+  is no upstream inside the enclave. It applies to the bastion build; node images no longer use
+  NIB.
 - **Prism Central credentials must not be one account bound to Prism Central Admin.** CSI and
   CCM run on workload clusters, so that credential would sit within reach of any tenant with
   secret-read in a platform namespace, granting estate-wide VM and image deletion. Split into

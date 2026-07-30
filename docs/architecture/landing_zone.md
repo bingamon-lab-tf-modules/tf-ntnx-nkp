@@ -342,7 +342,7 @@ pre-provision them. v2.18 ships `nutanix-csi-driver` 3.7.1 with default StorageC
 
 ### 5.3 The iSCSI Data Services IP — needed only for NDK, which Ultimate unlocks
 
-bingamon sets `data_services_ip: 192.168.85.229`, and it is easy to assume this is a hard
+bingamon sets `data_services_ip: 192.168.81.229`, and it is easy to assume this is a hard
 CSI prerequisite. **Against the v2.18 docs, it is not.**
 
 The only occurrence of "iSCSI Data Services" in the entire doc set is inside the _Nutanix
@@ -357,7 +357,7 @@ is set.
 
 **Because bingamon holds Ultimate, NDK is reachable** — it needs a Pro/Ultimate/NKPFS
 licence — so this is a live option rather than a closed one. Happily, no action is needed
-either way: the value is already set at `192.168.85.229`, is genuinely required for the PC
+either way: the value is already set at `192.168.81.229`, is genuinely required for the PC
 deploy, and costs nothing to keep.
 
 If NDK _is_ adopted later, its other prerequisites come with it and are not satisfied today:

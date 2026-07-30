@@ -108,7 +108,7 @@ whole matrix in one row:
 ### Not required, contrary to expectation
 
 - **CMSP / Prism Central Microservices Infrastructure.** Zero occurrences across the entire
-  v2.18 doc set. The Karbon-era assumption does not carry over.
+  v2.18 doc set. The Karbon-era assumption does not carry over (Kubernetes Karbon is deprecated and unsupported; this environment is strictly NKP only).
 - **Nutanix Marketplace** is required _only_ for the Marketplace UI deploy path, not the CLI.
 
 ## 2. Capacity

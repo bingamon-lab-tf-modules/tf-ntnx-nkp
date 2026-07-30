@@ -5,8 +5,8 @@
 # migrated by issue 555).
 set -euo pipefail
 
-RESOURCE_ALLOW='^nutanix_(ndb_|karbon_|foundation_|self_service_|recovery_plan$|project$)'
-DATA_ALLOW='^nutanix_(ndb_|karbon_|foundation_|self_service_|blueprint_|recovery_plans?$|projects?$)'
+RESOURCE_ALLOW='^nutanix_(ndb_|foundation_|self_service_|recovery_plan$|project$)'
+DATA_ALLOW='^nutanix_(ndb_|foundation_|self_service_|blueprint_|recovery_plans?$|projects?$)'
 
 resource_violations=$(grep -rhoE '^\s*resource\s+"nutanix_[a-z0-9_]+"' \
 	--include='*.tf' \

@@ -1,151 +1,459 @@
+##################################################
+# tf-ntnx-nkp — contract rendering and validation
+#
+# Everything here is pure computation. No resource is created, no command is
+# run, nothing is written outside this module's own outputs (lz-paas ADR 0018).
+##################################################
+
 locals {
-  # Enable data lookups only when Nutanix credentials are provided and non-dummy (e.g. not offline test)
-  enable_data_lookups = var.nutanix_username != null && var.nutanix_password != null && var.nutanix_username != "" && var.nutanix_username != "dummy"
 
-  # Helper lookup maps from Nutanix v2 data sources
-  cluster_uuids_by_name = {
-    for c in try(data.nutanix_clusters_v2.this[0].cluster_entities, []) :
-    c.name => c.ext_id
-  }
+  enable_data_lookups = var.enable_data_lookups
 
-  subnet_uuids_by_name = {
-    for s in try(data.nutanix_subnets_v2.this[0].subnets, []) :
-    s.name => s.ext_id
-  }
+  ##################################################
+  # Resolved placement
+  ##################################################
 
-  storage_container_uuids_by_name = {
-    for sc in try(data.nutanix_storage_containers_v2.this[0].storage_containers, []) :
-    sc.name => try(sc.container_ext_id, sc.ext_id)
-  }
+  # Each pool falls back to var.placement unless it overrides. Resolved once so
+  # the argv builders and the data-source lookups agree by construction.
+  cp_prism_element     = coalesce(var.control_plane.prism_element_cluster, var.placement.prism_element_cluster)
+  cp_subnets           = coalesce(var.control_plane.subnets, var.placement.subnets)
+  cp_vm_image          = coalesce(var.control_plane.vm_image, var.placement.vm_image)
+  worker_prism_element = coalesce(var.workers.prism_element_cluster, var.placement.prism_element_cluster)
+  worker_subnets       = coalesce(var.workers.subnets, var.placement.subnets)
+  worker_vm_image      = coalesce(var.workers.vm_image, var.placement.vm_image)
 
-  # Resolved Nutanix UUIDs (falling back to variable inputs in plan-only/offline mode or if already UUIDs)
-  prism_element_cluster_uuid = try(
-    local.cluster_uuids_by_name[var.prism_element_cluster],
-    var.prism_element_cluster
+  # Every distinct name the plan should resolve against Prism Central.
+  referenced_subnets   = distinct(concat(local.cp_subnets, local.worker_subnets))
+  referenced_clusters  = distinct([local.cp_prism_element, local.worker_prism_element])
+  referenced_vm_images = distinct([local.cp_vm_image, local.worker_vm_image])
+
+  # nkp takes repeated names as one comma-separated value.
+  cp_subnets_arg     = join(",", local.cp_subnets)
+  worker_subnets_arg = join(",", local.worker_subnets)
+
+  pc_url = "https://${var.prism_central.endpoint}:${var.prism_central.port}"
+
+  ##################################################
+  # Validation 1 — static IP / CIDR math
+  ##################################################
+
+  # Catches the errors that would otherwise waste a 45-minute create. Pure
+  # arithmetic: no API call, no credentials, always evaluated.
+
+  lb_parts = split("-", var.networking.load_balancer_ip_range)
+  lb_start = trimspace(local.lb_parts[0])
+  lb_end   = trimspace(local.lb_parts[1])
+
+  # IPv4 dotted-quad -> integer, so ranges can be compared and counted.
+  lb_start_int = sum([
+    for i, o in split(".", local.lb_start) : tonumber(o) * pow(256, 3 - i)
+  ])
+  lb_end_int = sum([
+    for i, o in split(".", local.lb_end) : tonumber(o) * pow(256, 3 - i)
+  ])
+  cp_vip_int = sum([
+    for i, o in split(".", var.control_plane.endpoint_ip) : tonumber(o) * pow(256, 3 - i)
+  ])
+
+  lb_range_size = local.lb_end_int - local.lb_start_int + 1
+
+  # MetalLB hands one address to kommander-traefik on the management cluster;
+  # fewer than a handful leaves no room for platform services.
+  lb_range_errors = concat(
+    local.lb_end_int < local.lb_start_int ? [
+      "networking.load_balancer_ip_range is reversed: ${local.lb_start} is above ${local.lb_end}."
+    ] : [],
+    (local.lb_end_int >= local.lb_start_int && local.lb_range_size < 4) ? [
+      "networking.load_balancer_ip_range holds only ${local.lb_range_size} address(es). Allow at least 4 for the management cluster's platform services."
+    ] : [],
+    (local.cp_vip_int >= local.lb_start_int && local.cp_vip_int <= local.lb_end_int) ? [
+      "control_plane.endpoint_ip ${var.control_plane.endpoint_ip} falls inside networking.load_balancer_ip_range ${var.networking.load_balancer_ip_range}. MetalLB would hand the control-plane VIP to a Service."
+    ] : [],
   )
 
-  control_plane_subnet_uuid = try(
-    local.subnet_uuids_by_name[var.control_plane_subnet],
-    var.control_plane_subnet
+  # Pod and service CIDRs must not overlap. Checked both directions, since
+  # containment is not symmetric.
+  cidr_overlap_errors = (
+    cidrcontains(var.networking.pod_cidr, cidrhost(var.networking.service_cidr, 0))
+    || cidrcontains(var.networking.service_cidr, cidrhost(var.networking.pod_cidr, 0))
+    ) ? [
+    "networking.pod_cidr (${var.networking.pod_cidr}) and networking.service_cidr (${var.networking.service_cidr}) overlap."
+  ] : []
+
+  # The control-plane VIP must not sit inside either Kubernetes CIDR.
+  vip_cidr_errors = concat(
+    cidrcontains(var.networking.pod_cidr, var.control_plane.endpoint_ip) ? [
+      "control_plane.endpoint_ip ${var.control_plane.endpoint_ip} falls inside networking.pod_cidr ${var.networking.pod_cidr}."
+    ] : [],
+    cidrcontains(var.networking.service_cidr, var.control_plane.endpoint_ip) ? [
+      "control_plane.endpoint_ip ${var.control_plane.endpoint_ip} falls inside networking.service_cidr ${var.networking.service_cidr}."
+    ] : [],
   )
 
-  worker_subnet_uuid = try(
-    local.subnet_uuids_by_name[var.worker_subnet],
-    var.worker_subnet
+  ##################################################
+  # Validation 2 — version contract consistency
+  ##################################################
+
+  # Regex-escape the dots so 2.18.0 cannot match 2a18b0.
+  nkp_version_re = replace(var.version_contract.nkp, ".", "\\.")
+  k8s_version_re = replace(var.version_contract.kubernetes, ".", "\\.")
+
+  # A 1.35.2 node image with a 2.18.0 bundle is the mismatch class nkp-images'
+  # release train exists to prevent; catch it here, not 40 minutes in.
+  version_errors = concat(
+    [
+      for b in var.airgap.bundles :
+      "airgap.bundles entry '${b}' does not carry version_contract.nkp (${var.version_contract.nkp}). Bundle filenames are versioned; a mismatched bundle fails after the bootstrap cluster is already up."
+      if !can(regex(local.nkp_version_re, b))
+    ],
+    !can(regex(local.nkp_version_re, var.airgap.bootstrap_cluster_image)) ? [
+      "airgap.bootstrap_cluster_image '${var.airgap.bootstrap_cluster_image}' does not carry version_contract.nkp (${var.version_contract.nkp})."
+    ] : [],
+    # Node images are named ...-<k8s-version>-<timestamp>; the release train
+    # guarantees the substring, so its absence means the wrong image.
+    [
+      for img in local.referenced_vm_images :
+      "vm_image '${img}' does not carry version_contract.kubernetes (${var.version_contract.kubernetes}). A node image built for a different Kubernetes version will not join the cluster."
+      if !can(regex(local.k8s_version_re, img))
+    ],
   )
 
-  csi_storage_container_uuid = try(
-    local.storage_container_uuids_by_name[var.csi_storage_container],
-    var.csi_storage_container
+  ##################################################
+  # Validation 3 — air-gap invariants
+  ##################################################
+
+  # A registry mirror pointing at the internet is not an air gap. Checked by
+  # host, since reachability is not something this module can test.
+  public_registry_re = "docker\\.io|ghcr\\.io|quay\\.io|gcr\\.io|registry\\.k8s\\.io"
+
+  airgap_errors = concat(
+    (var.registry.mirror_url != null && can(regex(local.public_registry_re, coalesce(var.registry.mirror_url, "")))) ? [
+      "registry.mirror_url '${var.registry.mirror_url}' points at a public registry. This module renders air-gapped installs only."
+    ] : [],
+    (var.registry.url != null && can(regex(local.public_registry_re, coalesce(var.registry.url, "")))) ? [
+      "registry.url '${var.registry.url}' points at a public registry. This module renders air-gapped installs only."
+    ] : [],
+    # A mirror without a username is legitimate (anonymous pull); a username
+    # without a mirror or registry URL means the credential goes nowhere.
+    (var.registry.username != null && var.registry.url == null && var.registry.mirror_url == null) ? [
+      "registry.username is set but neither registry.url nor registry.mirror_url is. The credential would not be used."
+    ] : [],
   )
 
-  # Infrastructure prerequisites summary map
+  ##################################################
+  # Validation 4 — Nutanix object existence
+  ##################################################
+
+  # Names resolved live. Gated by enable_data_lookups because plan then needs
+  # working Prism Central credentials; the static validations never do.
+  found_cluster_names = local.enable_data_lookups ? try([
+    for c in data.nutanix_clusters_v2.this[0].cluster_entities : c.name
+  ], []) : []
+
+  found_subnet_names = local.enable_data_lookups ? try([
+    for s in data.nutanix_subnets_v2.this[0].subnets : s.name
+  ], []) : []
+
+  found_container_names = local.enable_data_lookups ? try([
+    for c in data.nutanix_storage_containers_v2.this[0].storage_containers : c.name
+  ], []) : []
+
+  found_image_names = local.enable_data_lookups ? try([
+    for i in data.nutanix_images_v2.this[0].images : i.name
+  ], []) : []
+
+  existence_errors = local.enable_data_lookups ? concat(
+    [
+      for name in local.referenced_clusters :
+      "Prism Element cluster '${name}' was not found on ${var.prism_central.endpoint}."
+      if !contains(local.found_cluster_names, name)
+    ],
+    [
+      for name in local.referenced_subnets :
+      "Subnet '${name}' was not found on ${var.prism_central.endpoint}."
+      if !contains(local.found_subnet_names, name)
+    ],
+    [
+      for name in local.referenced_vm_images :
+      "VM image '${name}' was not found on ${var.prism_central.endpoint}. Upload the NKP node image before creating the cluster."
+      if !contains(local.found_image_names, name)
+    ],
+    !contains(local.found_container_names, var.csi.storage_container) ? [
+      "Storage container '${var.csi.storage_container}' was not found on ${var.prism_central.endpoint}."
+    ] : [],
+  ) : []
+
+  # Aggregated so one precondition reports every problem in a single run, rather
+  # than making the operator re-plan once per typo.
+  validation_errors = concat(
+    local.lb_range_errors,
+    local.cidr_overlap_errors,
+    local.vip_cidr_errors,
+    local.version_errors,
+    local.airgap_errors,
+    local.existence_errors,
+  )
+
+  # Resolved ext_ids, surfaced for the caller and for debugging. Not used to
+  # build argv: nkp takes names, and passing a UUID where it wants a name fails
+  # in a way that is hard to read.
   prerequisites = {
-    prism_central_endpoint = var.prism_central_endpoint
-    prism_element_cluster = {
-      name = var.prism_element_cluster
-      uuid = local.prism_element_cluster_uuid
+    prism_element_clusters = local.enable_data_lookups ? {
+      for c in try(data.nutanix_clusters_v2.this[0].cluster_entities, []) :
+      c.name => c.ext_id if contains(local.referenced_clusters, c.name)
+    } : {}
+    subnets = local.enable_data_lookups ? {
+      for s in try(data.nutanix_subnets_v2.this[0].subnets, []) :
+      s.name => s.ext_id if contains(local.referenced_subnets, s.name)
+    } : {}
+    storage_containers = local.enable_data_lookups ? {
+      for c in try(data.nutanix_storage_containers_v2.this[0].storage_containers, []) :
+      c.name => try(c.container_ext_id, c.ext_id) if c.name == var.csi.storage_container
+    } : {}
+    vm_images = local.enable_data_lookups ? {
+      for i in try(data.nutanix_images_v2.this[0].images, []) :
+      i.name => i.ext_id if contains(local.referenced_vm_images, i.name)
+    } : {}
+  }
+
+  ##################################################
+  # Secret names
+  ##################################################
+
+  # NAMES ONLY. The hook resolves each from SOPS and injects it into the child
+  # process environment. No value may be rendered here: outputs land in state.
+  secret_env = concat(
+    ["NUTANIX_USER", "NUTANIX_PASSWORD"],
+    var.registry.username != null ? ["NKP_REGISTRY_PASSWORD"] : [],
+    var.registry.mirror_url != null ? ["NKP_REGISTRY_MIRROR_PASSWORD"] : [],
+  )
+
+  ##################################################
+  # argv — create
+  ##################################################
+
+  # Ordered to mirror the hand-run command that bootstrapped nkp-mgmt on
+  # 2026-07-31, so a diff against that oracle reads cleanly.
+  #
+  # Booleans render as --flag=true/false rather than bare --flag: pflag treats a
+  # bare boolean as true, so the explicit form is the only way to express false
+  # and is unambiguous for both.
+  argv_create_base = [
+    "nkp", "create", "cluster", "nutanix",
+    "--cluster-name", var.cluster_name,
+
+    # Module-owned. Not settable by the caller, refused in extra_args.
+    "--self-managed",
+    "--airgapped",
+
+    "--bundle", join(",", var.airgap.bundles),
+    "--bootstrap-cluster-image", var.airgap.bootstrap_cluster_image,
+    "--endpoint", local.pc_url,
+  ]
+
+  argv_create_pc = concat(
+    var.prism_central.insecure ? ["--insecure"] : [],
+    var.prism_central.additional_trust_bundle != null ? ["--additional-trust-bundle", var.prism_central.additional_trust_bundle] : [],
+  )
+
+  argv_create_networking = concat(
+    [
+      "--control-plane-endpoint-ip", var.control_plane.endpoint_ip,
+      "--control-plane-endpoint-port", tostring(var.control_plane.endpoint_port),
+      "--kubernetes-service-load-balancer-ip-range", var.networking.load_balancer_ip_range,
+      "--kubernetes-pod-network-cidr", var.networking.pod_cidr,
+      "--kubernetes-service-cidr", var.networking.service_cidr,
+      "--kubernetes-version", var.version_contract.kubernetes,
+    ],
+    var.control_plane.external_endpoint != null ? ["--control-plane-external-endpoint", var.control_plane.external_endpoint] : [],
+  )
+
+  argv_create_control_plane = concat(
+    [
+      "--control-plane-replicas", tostring(var.control_plane.replicas),
+      "--control-plane-vcpus", tostring(var.control_plane.vcpus),
+      "--control-plane-cores-per-vcpu", tostring(var.control_plane.cores_per_vcpu),
+      "--control-plane-memory", tostring(var.control_plane.memory_gib),
+      "--control-plane-disk-size", tostring(var.control_plane.disk_size_gib),
+      "--control-plane-prism-element-cluster", local.cp_prism_element,
+      "--control-plane-subnets", local.cp_subnets_arg,
+      "--control-plane-vm-image", local.cp_vm_image,
+    ],
+    length(var.control_plane.pc_categories) > 0 ? ["--control-plane-pc-categories", join(",", var.control_plane.pc_categories)] : [],
+    var.control_plane.pc_project != null ? ["--control-plane-pc-project", var.control_plane.pc_project] : [],
+    # Only emitted when it differs from the CLI's own default of 180, to keep
+    # the rendered command close to the hand-run oracle.
+    var.control_plane.renew_certificates_before != 180 ? ["--control-plane-renew-certificates-before", tostring(var.control_plane.renew_certificates_before)] : [],
+  )
+
+  argv_create_workers = concat(
+    [
+      "--worker-replicas", tostring(var.workers.replicas),
+      "--worker-vcpus", tostring(var.workers.vcpus),
+      "--worker-cores-per-vcpu", tostring(var.workers.cores_per_vcpu),
+      "--worker-memory", tostring(var.workers.memory_gib),
+      "--worker-disk-size", tostring(var.workers.disk_size_gib),
+      "--worker-prism-element-cluster", local.worker_prism_element,
+      "--worker-subnets", local.worker_subnets_arg,
+      "--worker-vm-image", local.worker_vm_image,
+    ],
+    length(var.workers.pc_categories) > 0 ? ["--worker-pc-categories", join(",", var.workers.pc_categories)] : [],
+    var.workers.pc_project != null ? ["--worker-pc-project", var.workers.pc_project] : [],
+    var.workers.vm_profile != null ? ["--worker-vm-profile", var.workers.vm_profile] : [],
+  )
+
+  argv_create_csi = concat(
+    [
+      "--csi-storage-container", var.csi.storage_container,
+      "--csi-file-system", var.csi.file_system,
+      "--csi-reclaim-policy", var.csi.reclaim_policy,
+      "--csi-hypervisor-attached-volumes=${var.csi.hypervisor_attached_volumes}",
+    ],
+    # Default is false; emit only when enabled, matching the oracle.
+    var.csi.flash_mode ? ["--csi-flash-mode=true"] : [],
+  )
+
+  argv_create_registry = concat(
+    var.registry.url != null ? ["--registry-url", var.registry.url] : [],
+    var.registry.username != null ? ["--registry-username", var.registry.username] : [],
+    var.registry.cacert != null ? ["--registry-cacert", var.registry.cacert] : [],
+    var.registry.mirror_url != null ? ["--registry-mirror-url", var.registry.mirror_url] : [],
+    var.registry.mirror_cacert != null ? ["--registry-mirror-cacert", var.registry.mirror_cacert] : [],
+  )
+
+  argv_create_proxy = concat(
+    var.proxy.http != null ? ["--http-proxy", var.proxy.http] : [],
+    var.proxy.https != null ? ["--https-proxy", var.proxy.https] : [],
+    length(var.proxy.no_proxy) > 0 ? ["--no-proxy", join(",", var.proxy.no_proxy)] : [],
+  )
+
+  argv_create_ingress = concat(
+    var.ingress.ca != null ? ["--ingress-ca", var.ingress.ca] : [],
+    var.ingress.certificate != null ? ["--ingress-certificate", var.ingress.certificate] : [],
+    var.ingress.acme_email != null ? ["--acme-email", var.ingress.acme_email] : [],
+    var.ingress.acme_server != null ? ["--acme-server", var.ingress.acme_server] : [],
+  )
+
+  argv_create_misc = concat(
+    [
+      "--ssh-public-key-file", var.ssh.public_key_path,
+      "--ssh-username", var.ssh.username,
+    ],
+    length(var.misc.ntp_servers) > 0 ? ["--ntp-servers", join(",", var.misc.ntp_servers)] : [],
+    length(var.misc.extra_sans) > 0 ? ["--extra-sans", join(",", var.misc.extra_sans)] : [],
+    var.misc.cluster_hostname != null ? ["--cluster-hostname", var.misc.cluster_hostname] : [],
+    var.misc.fips ? ["--fips=true"] : [],
+    var.misc.capi_additional_sync_machine_labels != null ? ["--capi-additional-sync-machine-labels", var.misc.capi_additional_sync_machine_labels] : [],
+    var.misc.capi_additional_sync_machine_annotations != null ? ["--capi-additional-sync-machine-annotations", var.misc.capi_additional_sync_machine_annotations] : [],
+    [
+      "--onboard-to-prism-central=${var.misc.onboard_to_prism_central}",
+      "--timeout", var.misc.timeout,
+    ],
+  )
+
+  argv_create = concat(
+    local.argv_create_base,
+    local.argv_create_pc,
+    local.argv_create_networking,
+    local.argv_create_control_plane,
+    local.argv_create_workers,
+    local.argv_create_csi,
+    local.argv_create_registry,
+    local.argv_create_proxy,
+    local.argv_create_ingress,
+    local.argv_create_misc,
+    var.extra_args,
+  )
+
+  ##################################################
+  # argv — delete
+  ##################################################
+
+  # Deleting a self-managed cluster builds a fresh bootstrap cluster and
+  # reverse-pivots CAPI into it, so the bundle is needed here too (verified
+  # live 2026-07-31). --kubeconfig is module-owned: the hook appends the path it
+  # wrote from break-glass. nkp delete has NO --dry-run; the hook implements its
+  # own, and the volume-group sweep is entirely the hook's job.
+  argv_delete = [
+    "nkp", "delete", "cluster",
+    "--cluster-name", var.cluster_name,
+    "--self-managed",
+    "--bootstrap-cluster-image", var.airgap.bootstrap_cluster_image,
+    "--delete-kubernetes-resources",
+    "--timeout", var.misc.timeout,
+  ]
+
+  ##################################################
+  # The contract
+  ##################################################
+
+  contract = {
+    cluster_name = var.cluster_name
+    nkp_version  = var.version_contract.nkp
+
+    bastion = {
+      host         = var.bastion.host
+      user         = var.bastion.user
+      work_dir     = var.bastion.work_dir
+      min_free_gib = var.bastion.min_free_gib
     }
-    control_plane_subnet = {
-      name = var.control_plane_subnet
-      uuid = local.control_plane_subnet_uuid
+
+    # Non-secret process environment. NO_COLOR keeps a 45-minute log readable
+    # when the hook mirrors it to a file and to /dev/tty.
+    env = {
+      NO_COLOR = "1"
     }
-    worker_subnet = {
-      name = var.worker_subnet
-      uuid = local.worker_subnet_uuid
+
+    # Names the hook must resolve from SOPS and inject. Never values.
+    secret_env = local.secret_env
+
+    # The account to authenticate as. The hook looks its password up on the
+    # Prism Central plane (lz-paas ADR 0020) and exports it as NUTANIX_PASSWORD
+    # alongside NUTANIX_USER.
+    prism_central = {
+      endpoint = var.prism_central.endpoint
+      port     = var.prism_central.port
+      url      = local.pc_url
+      user     = var.prism_central.user
+      insecure = var.prism_central.insecure
     }
-    csi_storage_container = {
-      name = var.csi_storage_container
-      uuid = local.csi_storage_container_uuid
+
+    # What ensure_ready() must guarantee before either verb runs.
+    preflight = {
+      bundles                 = var.airgap.bundles
+      bootstrap_cluster_image = var.airgap.bootstrap_cluster_image
+      nkp_version             = var.version_contract.nkp
+      min_free_gib            = var.bastion.min_free_gib
+      ssh_public_key_path     = var.ssh.public_key_path
+    }
+
+    create = {
+      argv    = local.argv_create
+      timeout = var.misc.timeout
+    }
+
+    delete = {
+      argv    = local.argv_delete
+      timeout = var.misc.timeout
+    }
+
+    # Deferred. Present so the contract shape does not change when it lands.
+    gitops = {
+      enabled = false
     }
   }
-  # Profile-based sizing & application configuration
-  worker_replicas = var.profile == "small" ? 3 : 4
-  app_flags       = var.profile == "small" ? "--app-options=\"rook-ceph.enabled=false,velero.enabled=false,logging-operator.enabled=false,kube-prometheus-stack.enabled=false\" --disable-apps=\"rook-ceph,velero,logging,monitoring\"" : ""
-  bundle_flags    = length(var.bundle_paths) > 0 ? "--bundle=${join(",", var.bundle_paths)}" : ""
 
-  # Rendered nkp create cluster nutanix bootstrap script
-  bootstrap_script = trimspace(<<-EOF
-    #!/usr/bin/env bash
-    set -euo pipefail
+  ##################################################
+  # Human-readable rendering
+  ##################################################
 
-    nkp create cluster nutanix \
-      --cluster-name="${var.cluster_name}" \
-      --endpoint="${var.prism_central_endpoint}" \
-      --control-plane-endpoint-ip="${var.control_plane_vip}" \
-      --control-plane-prism-element-cluster="${var.prism_element_cluster}" \
-      --control-plane-subnets="${var.control_plane_subnet}" \
-      --control-plane-vm-image="${var.control_plane_vm_image}" \
-      --worker-prism-element-cluster="${var.prism_element_cluster}" \
-      --worker-subnets="${var.worker_subnet}" \
-      --worker-vm-image="${var.worker_vm_image}" \
-      --worker-replicas=${local.worker_replicas} \
-      --csi-storage-container="${var.csi_storage_container}" \
-      --kubernetes-service-load-balancer-ip-range="${var.load_balancer_ip_range}" \
-      --kubernetes-pod-network-cidr="${var.pod_cidr}" \
-      --kubernetes-service-cidr="${var.service_cidr}" \
-      --bootstrap-cluster-image="${var.bootstrap_cluster_image}" \
-      --self-managed \
-      --airgapped=true${local.bundle_flags != "" ? " \\\n  ${local.bundle_flags}" : ""}${local.app_flags != "" ? " \\\n  ${local.app_flags}" : ""}
-  EOF
-  )
-  # Rendered 6-step nkp upgrade shell script
-  upgrade_script = trimspace(<<-EOF
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    nkp upgrade capi-components
-    nkp upgrade cluster nutanix --vm-image="${var.worker_vm_image}"
-    nkp upgrade kommander
-    nkp upgrade workspace "${var.cluster_name}"
-    nkp upgrade addons
-    nkp upgrade catalogapp
-  EOF
-  )
-
-  # Rendered Bastion VM cloud-init user-data YAML string
-  bastion_cloud_init = trimspace(<<-EOF
-    #cloud-config
-    hostname: ${var.cluster_name}-bastion
-    ${length(var.bastion_ssh_keys) > 0 ? "ssh_authorized_keys:\n${join("\n", [for key in var.bastion_ssh_keys : "  - ${key}"])}" : "# ssh_authorized_keys: none configured"}
-    write_files:
-      - path: /etc/pki/ca-trust/source/anchors/internal-ca.crt
-        permissions: '0644'
-        content: |
-          ${indent(10, length(var.ca_certificates) > 0 ? join("\n", var.ca_certificates) : "# Internal CA Certificate Trust Bundle\n# Placeholder / No custom CA certificates supplied")}
-      - path: /usr/local/bin/unpack-airgap-bundles.sh
-        permissions: '0755'
-        content: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          echo "Initializing air-gapped bundle unpacking for NKP management cluster ${var.cluster_name}..."
-          BUNDLE_DIR="/var/tmp/nkp-bundles"
-          mkdir -p "$${BUNDLE_DIR}"
-          for bundle in "$${BUNDLE_DIR}"/*.tar "$${BUNDLE_DIR}"/*.tar.gz /tmp/*.tar; do
-            if [ -f "$${bundle}" ]; then
-              echo "Unpacking air-gapped bundle: $${bundle}"
-              tar -xvf "$${bundle}" -C "$${BUNDLE_DIR}/" || true
-            fi
-          done
-          echo "Bundle unpacking completed."
-      - path: /etc/profile.d/sops-env.sh
-        permissions: '0644'
-        content: |
-          # SOPS Decryption Tools & Environment Configuration
-          export SOPS_AGE_KEY_FILE="$${HOME}/.config/sops/age/keys.txt"
-          export SOPS_DECRYPT_TOOL="sops"
-          export NKP_CLUSTER_NAME="${var.cluster_name}"
-          export PRISM_CENTRAL_ENDPOINT="${var.prism_central_endpoint}"
-    packages:
-      - sops
-      - age
-      - ca-certificates
-      - tar
-      - gzip
-    runcmd:
-      - update-ca-trust || update-ca-certificates || true
-      - chmod +x /usr/local/bin/unpack-airgap-bundles.sh
-      - /usr/local/bin/unpack-airgap-bundles.sh
-  EOF
-  )
+  # For docs, review and manual reproduction. Contains no secret: credentials
+  # are environment variables the operator exports, never argv.
+  command_human = join(" \\\n    ", concat(
+    ["nkp create cluster nutanix"],
+    [
+      for pair in chunklist(slice(local.argv_create, 4, length(local.argv_create)), 2) :
+      length(pair) == 2 && !startswith(pair[1], "-") ? join(" ", pair) : join(" \\\n    ", pair)
+    ],
+  ))
 }

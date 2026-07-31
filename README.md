@@ -1,81 +1,160 @@
 # tf-ntnx-nkp
 
-## Overview
+OpenTofu module that **validates** the Nutanix prerequisites for a Nutanix Kubernetes
+Platform (NKP) management cluster and **renders an execution contract** for the `nkp` CLI.
 
-OpenTofu module for Nutanix Kubernetes Platform (NKP) management cluster configuration, prerequisite validation, and execution contract rendering in air-gapped Nutanix AHV environments.
+It provisions nothing and executes nothing.
 
-## Architecture
+## Why it works this way
 
-This module manages the configuration contract for an NKP management cluster on Nutanix AHV:
+NKP is a CLI-driven product with no Terraform surface: the `nutanix/nutanix` provider ships
+no `nkp_*` resources, and `terraform` appears nowhere in the NKP 2.18 documentation set.
 
-- **Zero In-State VM Provisioning**: The module resolves and validates Nutanix infrastructure prerequisites (Prism Element clusters, subnets, storage containers) via Nutanix OpenTofu data sources and renders execution shell scripts and cloud-init contracts. VM lifecycle management and CLI execution are performed post-apply by the landing zone automation framework (`lz-cli`).
-- **Single Management Cluster CLI Contract**: Renders the complete `nkp create cluster nutanix` bootstrap script (`bootstrap_script`) with required flags, including `--airgapped=true`, air-gapped container image bundles (`bundle_paths`), and network CIDR configurations.
-- **Environment Footprint Profiles**: Supports `profile = "small"` (3 worker nodes for lab environments with optional heavy platform services disabled) and `profile = "full"` (4 worker nodes for full Ultimate platform footprint).
-- **Day-2 Lifecycle Management**: Renders a versioned 6-step `nkp upgrade` shell script (`upgrade_script`) for automated platform maintenance.
-- **Bastion Host Cloud-Init**: Renders Bastion VM `cloud-init` user-data (`bastion_cloud_init`) with injected SSH public keys (`bastion_ssh_keys`) and internal CA certificate trust bundles (`ca_certificates`).
+`nkp create cluster` is a 30–45 minute imperative command with no values file, no idempotency
+and no state tracking. Wrapping that in a `null_resource` or `local-exec` provisioner would
+put credentials in state, hold the state lock for the whole run, and leave destroy-time
+provisioners that break as soon as the bastion is gone.
+
+So the work is split. This module computes and checks; an `lz-cli` hook executes over SSH,
+outside the state lifecycle. See lz-paas ADR 0018.
+
+## Scope
+
+**Supported:** one **self-managed management cluster**, on **Nutanix**, **air-gapped**.
+
+**Not supported.** vSphere, AWS, Azure, GCP, EKS, AKS, GKE and pre-provisioned infrastructure
+are out of scope and backlogged — `nkp` supports them, this module deliberately does not. The
+AWS/GCP flags that appear in `nkp create cluster nutanix --help` come from NKP's shared global
+flag set and are refused here.
+
+**Workload clusters are also out of scope.** They are created through GitOps/Kommander on the
+management cluster this module bootstraps. Modelling them in Terraform would mean owning
+resources OpenTofu cannot see or reconcile.
 
 ## Usage
 
+One module instance per management cluster; callers with several use `for_each`.
+
 ```hcl
-module "nkp_management_cluster" {
+module "nkp" {
   source = "github.com/bingamon-lab-tf-modules/tf-ntnx-nkp//module?ref=v1.0.0"
 
-  cluster_name            = "nkp-mgmt"
-  profile                 = "small"
-  prism_central_endpoint  = "pc.lab.internal"
-  prism_element_cluster   = "pe-cluster-01"
-  control_plane_vip       = "192.168.82.10"
-  control_plane_subnet    = "vlan82-cp-subnet"
-  worker_subnet           = "vlan82-worker-subnet"
-  csi_storage_container   = "nkp-container"
-  load_balancer_ip_range  = "192.168.82.20-192.168.82.39"
-  control_plane_vm_image  = "centos-7.9-nkp-v2.18"
-  worker_vm_image         = "centos-7.9-nkp-v2.18"
+  cluster_name = "nkp-mgmt"
 
-  pod_cidr     = "172.20.0.0/16"
-  service_cidr = "10.96.0.0/12"
+  # A plain address. This module takes NO inputs from other landing zones, so it
+  # works in clickops estates where the bastion was built by hand.
+  bastion = { host = "nkp-bastion.example.lab" }
 
-  bundle_paths     = ["/opt/bundles/kommander-image-bundle-v2.18.0.tar"]
-  ca_certificates  = [file("${path.module}/certs/internal-ca.crt")]
-  bastion_ssh_keys = ["ssh-ed25519 ssh-key-placeholder"]
+  version_contract = {
+    nkp        = "2.18.0"
+    kubernetes = "1.35.2"
+  }
+
+  # `user` NAMES a Prism Central account; its password is injected by the hook.
+  prism_central = {
+    endpoint = "pc.example.lab"
+    user     = "nkp-capx"
+  }
+
+  # Absolute paths ON THE BASTION.
+  airgap = {
+    bundles = [
+      "/var/tmp/nkp-v2.18.0/container-images/konvoy-image-bundle-v2.18.0.tar",
+      "/var/tmp/nkp-v2.18.0/container-images/kommander-image-bundle-v2.18.0.tar",
+    ]
+    bootstrap_cluster_image = "/var/tmp/nkp-v2.18.0/konvoy-bootstrap-image-v2.18.0.tar"
+  }
+
+  placement = {
+    prism_element_cluster = "pe-cluster-01"
+    subnets               = ["Kubernetes Management"]
+    vm_image              = "nkp-ubuntu-24.04-release-cis-1.35.2-20260626141256"
+  }
+
+  control_plane = { endpoint_ip = "192.168.84.150" }
+  networking    = { load_balancer_ip_range = "192.168.84.151-192.168.84.170" }
+  csi           = { storage_container = "k8s-persistent" }
+  ssh           = { public_key_path = "/run/nkp/nkp-mgmt/id.pub" }
 }
 ```
 
-## Inputs
+Sizing, CSI, registry, proxy, ingress and misc settings default to NKP's own values; see
+`module/variables.tf`, which documents every input inline.
 
-| Name                     | Description                                                                                      | Type           | Default           | Required |
-| ------------------------ | ------------------------------------------------------------------------------------------------ | -------------- | ----------------- | :------: |
-| `cluster_name`           | Name of the NKP management cluster                                                               | `string`       | n/a               |   yes    |
-| `profile`                | Environment profile ('small' for lab 3-worker footprint, 'full' for 4-worker Ultimate footprint) | `string`       | `"small"`         |    no    |
-| `prism_central_endpoint` | Prism Central FQDN or IP address                                                                 | `string`       | n/a               |   yes    |
-| `control_plane_vip`      | Static VIP for Kubernetes control plane                                                          | `string`       | n/a               |   yes    |
-| `prism_element_cluster`  | Name of the target Prism Element cluster                                                         | `string`       | n/a               |   yes    |
-| `control_plane_subnet`   | Nutanix subnet name/UUID for control plane nodes                                                 | `string`       | n/a               |   yes    |
-| `worker_subnet`          | Nutanix subnet name/UUID for worker nodes                                                        | `string`       | n/a               |   yes    |
-| `csi_storage_container`  | Nutanix Storage Container name for CSI persistent volumes                                        | `string`       | n/a               |   yes    |
-| `load_balancer_ip_range` | MetalLB IP range (e.g. 192.168.82.20-192.168.82.39)                                              | `string`       | n/a               |   yes    |
-| `control_plane_vm_image` | Nutanix OS VM Image name for control plane nodes                                                 | `string`       | n/a               |   yes    |
-| `worker_vm_image`        | Nutanix OS VM Image name for worker nodes                                                        | `string`       | n/a               |   yes    |
-| `pod_cidr`               | Kubernetes Pod Network CIDR (must match 172.20.0.0/16)                                           | `string`       | `"172.20.0.0/16"` |    no    |
-| `service_cidr`           | Kubernetes Service Network CIDR                                                                  | `string`       | `"10.96.0.0/12"`  |    no    |
-| `bundle_paths`           | List of local tarball bundle paths for air-gapped deployment                                     | `list(string)` | `[]`              |    no    |
-| `ca_certificates`        | List of PEM-encoded CA certificates to inject into Bastion host trust store                      | `list(string)` | `[]`              |    no    |
-| `bastion_ssh_keys`       | List of SSH public keys for Bastion host access                                                  | `list(string)` | `[]`              |    no    |
-| `nutanix_username`       | Nutanix Prism Central Username                                                                   | `string`       | `null`            |    no    |
-| `nutanix_password`       | Nutanix Prism Central Password                                                                   | `string`       | `null`            |    no    |
+## The contract
 
-## Outputs
+`output "contract"` is what the hook consumes:
 
-| Name                 | Description                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| `nkp_summary`        | Summary map of NKP cluster configuration (`cluster_name`, `profile`, `pod_cidr`, `service_cidr`). |
-| `prerequisites`      | Map of resolved and validated Nutanix cluster, subnet, and container UUIDs.                       |
-| `bootstrap_script`   | Rendered `nkp create cluster nutanix` shell script.                                               |
-| `upgrade_script`     | Rendered 6-step `nkp upgrade` shell script.                                                       |
-| `bastion_cloud_init` | Rendered Bastion VM `cloud-init` user-data YAML string.                                           |
-| `outputs`            | Aggregate map of all module outputs (spec §4 contract).                                           |
+```json
+{
+  "cluster_name": "nkp-mgmt",
+  "bastion": {"host": "...", "user": "...", "work_dir": "/var/tmp"},
+  "env": {"NO_COLOR": "1"},
+  "secret_env": ["NUTANIX_USER", "NUTANIX_PASSWORD"],
+  "preflight": {"bundles": ["..."], "min_free_gib": 60},
+  "create": {"argv": ["nkp", "create", "cluster", "nutanix", "..."]},
+  "delete": {"argv": ["nkp", "delete", "cluster", "..."]}
+}
+```
 
-## Documentation
+Two properties matter.
 
-- [Architecture Specification](docs/architecture/spec.md)
-- [Module Reference](module/README.md)
+**`argv` is a list, not a shell string.** The hook `exec`s it directly, so there is no quoting
+to get wrong — a Prism Central password containing `!` broke a hand-run command during
+development, and an argv list cannot have that class of bug.
+
+**`secret_env` carries NAMES, never values.** The hook resolves each from SOPS at run time.
+Nothing secret reaches OpenTofu state or `tofu output`, which is also why `contract` is not
+marked `sensitive`: you should be able to read the exact command before committing to a
+45-minute run.
+
+## Flag coverage
+
+Of the 82 flags on `nkp create cluster nutanix`:
+
+- **~55 are first-class validated inputs.**
+- **~14 are module-owned** and cannot be set. `--self-managed` and `--airgapped` define the
+  contract this module exists to render; `--dry-run`, `--output`, `--output-directory`,
+  `--wait`, `--verbose`, `--show-managed-fields`, `--kubeconfig` and `--namespace` belong to
+  the executing hook; `--skip-preflight-checks` is never silently allowed; the AWS/GCP ones
+  are meaningless here.
+- **`extra_args`** carries anything not yet modelled, validated against a deny-list of that
+  module-owned set so the air-gap contract cannot be voided through it.
+
+## Validation
+
+Everything fails at **plan**, because each of these otherwise costs a 30–45 minute create to
+discover. Failures are aggregated, so one plan reports every problem rather than one per run.
+
+| Class                    | Examples                                                                                                     | Needs credentials |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ | ----------------- |
+| Static IP/CIDR math      | VIP inside the load-balancer range; reversed or tiny range; pod/service CIDR overlap; VIP inside either CIDR | no                |
+| Version contract         | node image's Kubernetes version vs `version_contract`; bundle filenames vs the NKP version                   | no                |
+| Air-gap invariants       | registry pointing at a public host; relative artefact paths; a credential with no registry                   | no                |
+| Nutanix object existence | PE cluster, subnets, storage container and node images resolve by name                                       | **yes**           |
+
+Set `enable_data_lookups = false` to skip the last class for offline plans and unit tests.
+
+`enforce_validation` is a **test seam only** — it exists so tests can read
+`output.validation_errors` instead of dying on the precondition. Never set it false in a real
+configuration; it makes every cross-variable check advisory.
+
+## Notes from the field
+
+- **Teardown needs the bundle too.** `nkp delete cluster --self-managed` builds a _fresh_
+  bootstrap cluster and reverse-pivots CAPI into it, so `bootstrap_cluster_image` is required
+  for delete as well as create.
+- **`nkp delete` orphans every PVC-backed volume group.** `--delete-kubernetes-resources` is
+  scoped, by its own help text, to "Services with type LoadBalancer". Sweeping them is the
+  delete hook's job, and the PV → volume-group mapping must be captured _before_ teardown.
+- **`nkp delete` has no `--dry-run`.**
+
+## Development
+
+```bash
+tofu fmt -recursive .
+tofu validate
+tofu test          # 22 runs, fully offline
+```
+
+Tests live in `module/tests/validation.tftest.hcl`; every validation rule has a failing case.

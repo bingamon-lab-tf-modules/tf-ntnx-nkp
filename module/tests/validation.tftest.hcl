@@ -43,12 +43,15 @@ variables {
     user     = "nkp-capx"
   }
 
+  # Placeholder form, which is what callers should use: it keeps the
+  # directory-naming convention inside this module. Resolution is asserted in
+  # airgap_placeholders_resolve_against_the_cache_dir below.
   airgap = {
     bundles = [
-      "/var/tmp/nkp-v2.18.0/container-images/konvoy-image-bundle-v2.18.0.tar",
-      "/var/tmp/nkp-v2.18.0/container-images/kommander-image-bundle-v2.18.0.tar",
+      "$${cache_dir}/container-images/konvoy-image-bundle-v$${nkp_version}.tar",
+      "$${cache_dir}/container-images/kommander-image-bundle-v$${nkp_version}.tar",
     ]
-    bootstrap_cluster_image = "/var/tmp/nkp-v2.18.0/konvoy-bootstrap-image-v2.18.0.tar"
+    bootstrap_cluster_image = "$${cache_dir}/konvoy-bootstrap-image-v$${nkp_version}.tar"
   }
 
   placement = {
@@ -69,8 +72,10 @@ variables {
     storage_container = "k8s-persistent"
   }
 
+  # No public_key_path: the location ON THE BASTION is derived from
+  # bastion.run_root, not configured. See variables.tf.
   ssh = {
-    public_key_path = "/run/nkp/id_ed25519.pub"
+    username = "konvoy"
   }
 }
 
@@ -85,6 +90,128 @@ run "valid_configuration_has_no_errors" {
     condition     = length(output.validation_errors) == 0
     error_message = "A known-good configuration produced validation errors: ${join("; ", output.validation_errors)}"
   }
+}
+
+##################################################
+# 0. Bastion filesystem layout
+#
+# The contract's paths ARE the interface: the hook stages files at them and the
+# rendered argv points `nkp` at them. If they drift apart, the failure surfaces
+# 40 minutes into a create as a missing bundle or an unusable SSH key, so they
+# are asserted literally rather than by reconstruction.
+##################################################
+
+run "bastion_paths_are_namespaced_and_derived" {
+  command = plan
+
+  assert {
+    condition     = output.contract.bastion.cache_dir == "/var/tmp/lz-cli/cache/nkp/v2.18.0"
+    error_message = "cache_dir must be <cache_root>/nkp/v<version>, got ${output.contract.bastion.cache_dir}."
+  }
+
+  assert {
+    condition     = output.contract.bastion.run_dir == "/run/lz-cli/nkp/nkp-mgmt"
+    error_message = "run_dir must be <run_root>/nkp/<cluster>, got ${output.contract.bastion.run_dir}."
+  }
+
+  # The hook creates run_root with the flow's single privileged command, so it
+  # must be the SHARED root and not nkp's subdirectory of it.
+  assert {
+    condition     = output.contract.bastion.run_root == "/run/lz-cli"
+    error_message = "run_root must be the generic per-host root, got ${output.contract.bastion.run_root}."
+  }
+
+  # The kubeconfig lands in the directory that gets destroyed, not beside the
+  # bundle that does not. This is the whole point of splitting the roots.
+  assert {
+    condition     = startswith(output.contract.bastion.kubeconfig, output.contract.bastion.run_dir)
+    error_message = "kubeconfig must live inside run_dir, got ${output.contract.bastion.kubeconfig}."
+  }
+
+  # preflight tells the hook where to STAGE the key; argv tells nkp where to
+  # READ it. A mismatch is silent until CAPX rejects the node.
+  assert {
+    condition = anytrue([
+      for i, a in output.contract.create.argv :
+      a == "--ssh-public-key-file" && output.contract.create.argv[i + 1] == output.contract.preflight.ssh_public_key_path
+    ])
+    error_message = "--ssh-public-key-file must be the same path the hook is told to stage the key at (${output.contract.preflight.ssh_public_key_path})."
+  }
+
+  assert {
+    condition     = output.contract.preflight.ssh_public_key_path == "/run/lz-cli/nkp/nkp-mgmt/id.pub"
+    error_message = "The node public key belongs in run_dir, got ${output.contract.preflight.ssh_public_key_path}."
+  }
+}
+
+run "airgap_placeholders_resolve_against_the_cache_dir" {
+  command = plan
+
+  assert {
+    condition = output.contract.preflight.bundles == [
+      "/var/tmp/lz-cli/cache/nkp/v2.18.0/container-images/konvoy-image-bundle-v2.18.0.tar",
+      "/var/tmp/lz-cli/cache/nkp/v2.18.0/container-images/kommander-image-bundle-v2.18.0.tar",
+    ]
+    error_message = "$${cache_dir}/$${nkp_version} did not resolve: ${join(", ", output.contract.preflight.bundles)}."
+  }
+
+  assert {
+    condition     = output.contract.preflight.bootstrap_cluster_image == "/var/tmp/lz-cli/cache/nkp/v2.18.0/konvoy-bootstrap-image-v2.18.0.tar"
+    error_message = "bootstrap_cluster_image did not resolve: ${output.contract.preflight.bootstrap_cluster_image}."
+  }
+
+  # An unresolved placeholder reaching the bastion is a `cd` into a directory
+  # named literally "$${cache_dir}", which reads as a download failure.
+  assert {
+    condition = alltrue([
+      for b in concat(output.contract.preflight.bundles, [output.contract.preflight.bootstrap_cluster_image]) :
+      startswith(b, "/")
+    ])
+    error_message = "An air-gap path is not absolute after substitution."
+  }
+}
+
+run "absolute_airgap_paths_still_pass_through" {
+  command = plan
+
+  variables {
+    airgap = {
+      bundles                 = ["/srv/nkp/v2.18.0/konvoy-image-bundle-v2.18.0.tar"]
+      bootstrap_cluster_image = "/srv/nkp/v2.18.0/konvoy-bootstrap-image-v2.18.0.tar"
+    }
+  }
+
+  assert {
+    condition     = output.contract.preflight.bundles[0] == "/srv/nkp/v2.18.0/konvoy-image-bundle-v2.18.0.tar"
+    error_message = "An absolute air-gap path must pass through untouched, for a bastion stocked by other means."
+  }
+}
+
+run "cache_root_and_run_root_may_not_be_the_same" {
+  command = plan
+
+  variables {
+    bastion = {
+      host       = "nkp-bastion.lab.local"
+      cache_root = "/var/tmp/lz-cli"
+      run_root   = "/var/tmp/lz-cli/"
+    }
+  }
+
+  expect_failures = [var.bastion]
+}
+
+run "roots_must_be_absolute" {
+  command = plan
+
+  variables {
+    bastion = {
+      host     = "nkp-bastion.lab.local"
+      run_root = "run/lz-cli"
+    }
+  }
+
+  expect_failures = [var.bastion]
 }
 
 ##################################################

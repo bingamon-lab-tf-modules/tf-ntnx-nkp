@@ -43,18 +43,54 @@ variable "cluster_name" {
 # takes no inputs from other landing zones (ADR 0018 Revision, rule 5). This
 # module never connects to the bastion; the value is passed through to the
 # contract so the hook knows where to go.
+#
+# TWO ROOTS, NOT ONE WORK DIRECTORY
+# ---------------------------------
+# `work_dir` used to mean two incompatible things at once: where the ~27 GiB
+# air-gap bundle is cached, and the process cwd `nkp` writes its kubeconfig
+# into. Those want opposite lifetimes — the bundle should survive every run so a
+# teardown months later is not gated on a 20-minute download, and the kubeconfig
+# is a live cluster-admin credential that should not outlive the run at all.
+# Conflating them meant the credential inherited the bundle's lifetime.
+#
+# So: a CACHE root that persists and a RUN root that does not.
+#
+# Both are GENERIC roots shared by every tool that stages material on this
+# bastion, not NKP's own directories. This module appends its own `nkp/`
+# namespace (local.tool_*), so a future tool gets `<root>/<its-name>/` without
+# anyone renegotiating the layout. That is why the defaults end at `lz-cli` and
+# not at `nkp`.
+#
+# run_root defaults into /run because it is tmpfs: secrets staged there are
+# memory-backed and cannot be recovered from the disk image, whereas `shred` on
+# an ext4 root filesystem is not a guarantee. It costs one `install -d` at
+# run time (or a systemd-tmpfiles rule in the bastion image) because /run itself
+# is root-owned.
 variable "bastion" {
   type = object({
     host         = string
     user         = optional(string, "linadmin")
-    work_dir     = optional(string, "/var/tmp")
+    cache_root   = optional(string, "/var/tmp/lz-cli/cache")
+    run_root     = optional(string, "/run/lz-cli")
     min_free_gib = optional(number, 60)
   })
-  description = "Bastion the lz-cli hook connects to. host is a DNS name or IP typed by the operator."
+  description = "Bastion the lz-cli hook connects to. host is a DNS name or IP typed by the operator. cache_root and run_root are generic per-host roots; this module namespaces itself underneath them."
 
   validation {
     condition     = length(trimspace(var.bastion.host)) > 0
     error_message = "bastion.host must be set: a DNS name or IP address for the host that runs the nkp CLI."
+  }
+
+  validation {
+    condition     = startswith(var.bastion.cache_root, "/") && startswith(var.bastion.run_root, "/")
+    error_message = "bastion.cache_root and bastion.run_root must be absolute paths on the bastion."
+  }
+
+  # Sharing one root would give the bundle and the kubeconfig the same lifetime
+  # again, which is the whole reason they were split.
+  validation {
+    condition     = trimsuffix(var.bastion.cache_root, "/") != trimsuffix(var.bastion.run_root, "/")
+    error_message = "bastion.cache_root and bastion.run_root must differ: the cache persists between runs and the run directory is destroyed after every run."
   }
 
   validation {
@@ -137,21 +173,39 @@ variable "airgap" {
     bundles                 = list(string)
     bootstrap_cluster_image = string
   })
-  description = "Air-gap artefact paths on the bastion. Both are mandatory: this module only renders air-gapped installs."
+  description = "Air-gap artefact paths on the bastion. Both are mandatory: this module only renders air-gapped installs. Entries may be absolute, or relative to $${cache_dir} — see below."
 
   validation {
     condition     = length(var.airgap.bundles) > 0
     error_message = "airgap.bundles must list at least the konvoy and kommander image bundles."
   }
 
+  # THE PLACEHOLDER FORM IS THE ONE TO USE.
+  #
+  # `${cache_dir}` expands to <bastion.cache_root>/nkp/v<version_contract.nkp>,
+  # and `${nkp_version}` to the version itself, both resolved in locals.tf. The
+  # caller used to do this substitution itself, which meant the directory-naming
+  # convention was written down in two repositories and could drift: a caller
+  # computing the old `<work_dir>/nkp-v<ver>` while this module looked in
+  # `<cache_root>/nkp/v<ver>` produces a "bundle missing" error naming a path
+  # that is, from the caller's point of view, obviously present.
+  #
+  # Absolute paths are still accepted for a bastion whose bundles were placed by
+  # something other than the hook.
   validation {
-    condition     = alltrue([for b in var.airgap.bundles : startswith(b, "/")])
-    error_message = "airgap.bundles entries must be absolute paths on the bastion."
+    condition = alltrue([
+      for b in var.airgap.bundles :
+      startswith(b, "/") || startswith(b, "$${cache_dir}")
+    ])
+    error_message = "airgap.bundles entries must be absolute paths on the bastion, or begin with the $${cache_dir} placeholder."
   }
 
   validation {
-    condition     = length(trimspace(var.airgap.bootstrap_cluster_image)) > 0 && startswith(var.airgap.bootstrap_cluster_image, "/")
-    error_message = "airgap.bootstrap_cluster_image must be an absolute path on the bastion to konvoy-bootstrap-image-<version>.tar."
+    condition = (
+      length(trimspace(var.airgap.bootstrap_cluster_image)) > 0 &&
+      (startswith(var.airgap.bootstrap_cluster_image, "/") || startswith(var.airgap.bootstrap_cluster_image, "$${cache_dir}"))
+    )
+    error_message = "airgap.bootstrap_cluster_image must point at konvoy-bootstrap-image-<version>.tar, as an absolute path on the bastion or beginning with the $${cache_dir} placeholder."
   }
 }
 
@@ -417,17 +471,25 @@ variable "ingress" {
 # Baked into every node VM at create time and unchangeable afterwards without
 # redeploying them. The path is on the BASTION; the hook places the key there
 # from the operator's on-disk keypair (lz-paas ssh.keys pattern).
+#
+# public_key_path IS NOT AN INPUT.
+# --------------------------------
+# It used to be, and every caller passed the same derived value: the directory
+# this module already dictates, plus a filename the hook already hardcodes. That
+# made a path this module owns look configurable, and put the run-directory
+# layout in the caller's hands — where it drifted the moment the layout changed.
+#
+# It is now local.node_public_key_path, derived from bastion.run_root, and
+# published through the contract so the hook stages the key exactly where the
+# rendered argv looks for it. The operator still chooses the key itself; that is
+# a path on THEIR machine (nkp/<cluster>.yaml ssh.keys.public) and is none of
+# this module's business.
 variable "ssh" {
   type = object({
-    username        = optional(string, "konvoy")
-    public_key_path = string
+    username = optional(string, "konvoy")
   })
-  description = "Node SSH access. public_key_path is where the hook will have placed the public key on the bastion."
-
-  validation {
-    condition     = length(trimspace(var.ssh.public_key_path)) > 0
-    error_message = "ssh.public_key_path must be set."
-  }
+  default     = {}
+  description = "Node SSH access. The public key's location ON THE BASTION is derived from bastion.run_root, not configured here."
 
   validation {
     condition     = length(trimspace(var.ssh.username)) > 0

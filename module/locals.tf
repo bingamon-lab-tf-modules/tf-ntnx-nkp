@@ -10,6 +10,62 @@ locals {
   enable_data_lookups = var.enable_data_lookups
 
   ##################################################
+  # Bastion filesystem layout
+  #
+  # Two roots with deliberately opposite lifetimes (see variables.tf "bastion"),
+  # each namespaced by TOOL so one bastion can serve several of them without the
+  # layout being renegotiated:
+  #
+  #   <cache_root>/nkp/v<version>/     survives every run; ~27 GiB of bundle
+  #   <run_root>/nkp/<cluster>/        destroyed after every run; tmpfs
+  #
+  # The `nkp` component is this module's own name and is therefore hardcoded
+  # here rather than passed in — a caller that could choose it could also make
+  # two tools collide on one directory, which is precisely what the namespace
+  # exists to prevent.
+  #
+  # The cache is keyed by VERSION and the run directory by CLUSTER, matching
+  # what each actually varies with: two clusters on the same NKP version share
+  # one bundle, and the same cluster re-run twice reuses one run directory.
+  ##################################################
+
+  tool = "nkp"
+
+  tool_cache_root = "${trimsuffix(var.bastion.cache_root, "/")}/${local.tool}"
+  tool_run_root   = "${trimsuffix(var.bastion.run_root, "/")}/${local.tool}"
+
+  # Where the bundle is extracted to. `v<version>` rather than `nkp-v<version>`:
+  # the `nkp` is already the parent directory, and repeating it produced
+  # /var/tmp/nkp/nkp-v2.18.0.
+  cache_dir = "${local.tool_cache_root}/v${var.version_contract.nkp}"
+
+  # Everything this run stages, and the cwd `nkp` itself is invoked in — so the
+  # kubeconfig it writes by default lands inside the directory that gets
+  # destroyed, instead of beside a bundle that does not.
+  run_dir = "${local.tool_run_root}/${var.cluster_name}"
+
+  # Derived, never configured. The hook stages the operator's public key here
+  # and the rendered argv points at it; one local keeps those two in step.
+  node_public_key_path = "${local.run_dir}/id.pub"
+
+  # `nkp` writes this into its cwd on create and reads it on delete. Named in
+  # the contract so the hook stops rebuilding the same string from work_dir.
+  kubeconfig_path = "${local.run_dir}/${var.cluster_name}.conf"
+
+  # Resolved air-gap paths. The caller may write these with ${cache_dir} and
+  # ${nkp_version} placeholders so the directory convention lives ONLY here;
+  # absolute paths pass through untouched for a bastion stocked by other means.
+  airgap_bundles = [
+    for b in var.airgap.bundles :
+    replace(replace(b, "$${cache_dir}", local.cache_dir), "$${nkp_version}", var.version_contract.nkp)
+  ]
+
+  airgap_bootstrap_cluster_image = replace(
+    replace(var.airgap.bootstrap_cluster_image, "$${cache_dir}", local.cache_dir),
+    "$${nkp_version}", var.version_contract.nkp,
+  )
+
+  ##################################################
   # Resolved placement
   ##################################################
 
@@ -102,12 +158,12 @@ locals {
   # release train exists to prevent; catch it here, not 40 minutes in.
   version_errors = concat(
     [
-      for b in var.airgap.bundles :
+      for b in local.airgap_bundles :
       "airgap.bundles entry '${b}' does not carry version_contract.nkp (${var.version_contract.nkp}). Bundle filenames are versioned; a mismatched bundle fails after the bootstrap cluster is already up."
       if !can(regex(local.nkp_version_re, b))
     ],
-    !can(regex(local.nkp_version_re, var.airgap.bootstrap_cluster_image)) ? [
-      "airgap.bootstrap_cluster_image '${var.airgap.bootstrap_cluster_image}' does not carry version_contract.nkp (${var.version_contract.nkp})."
+    !can(regex(local.nkp_version_re, local.airgap_bootstrap_cluster_image)) ? [
+      "airgap.bootstrap_cluster_image '${local.airgap_bootstrap_cluster_image}' does not carry version_contract.nkp (${var.version_contract.nkp})."
     ] : [],
     # Node images are named ...-<k8s-version>-<timestamp>; the release train
     # guarantees the substring, so its absence means the wrong image.
@@ -246,8 +302,8 @@ locals {
     "--self-managed",
     "--airgapped",
 
-    "--bundle", join(",", var.airgap.bundles),
-    "--bootstrap-cluster-image", var.airgap.bootstrap_cluster_image,
+    "--bundle", join(",", local.airgap_bundles),
+    "--bootstrap-cluster-image", local.airgap_bootstrap_cluster_image,
     "--endpoint", local.pc_url,
   ]
 
@@ -336,7 +392,7 @@ locals {
 
   argv_create_misc = concat(
     [
-      "--ssh-public-key-file", var.ssh.public_key_path,
+      "--ssh-public-key-file", local.node_public_key_path,
       "--ssh-username", var.ssh.username,
     ],
     length(var.misc.ntp_servers) > 0 ? ["--ntp-servers", join(",", var.misc.ntp_servers)] : [],
@@ -378,7 +434,7 @@ locals {
     "nkp", "delete", "cluster",
     "--cluster-name", var.cluster_name,
     "--self-managed",
-    "--bootstrap-cluster-image", var.airgap.bootstrap_cluster_image,
+    "--bootstrap-cluster-image", local.airgap_bootstrap_cluster_image,
     "--delete-kubernetes-resources",
     "--timeout", var.misc.timeout,
   ]
@@ -391,11 +447,28 @@ locals {
     cluster_name = var.cluster_name
     nkp_version  = var.version_contract.nkp
 
+    # Both generic roots and both resolved directories are published.
+    #
+    # The ROOTS are here because the hook has to create run_root before it can
+    # create anything beneath it, and on a stock host /run is root-owned — so
+    # that one `install -d` is the only privileged step in the whole flow, and
+    # it must target the shared root rather than nkp's subdirectory, or every
+    # tool would need its own.
+    #
+    # The RESOLVED directories are here so the hook never rebuilds a path the
+    # rendered argv already contains. `nkp` is told these exact strings; a hook
+    # that recomputed them could look in a directory the CLI never uses.
     bastion = {
       host         = var.bastion.host
       user         = var.bastion.user
-      work_dir     = var.bastion.work_dir
       min_free_gib = var.bastion.min_free_gib
+
+      cache_root = trimsuffix(var.bastion.cache_root, "/")
+      run_root   = trimsuffix(var.bastion.run_root, "/")
+
+      cache_dir  = local.cache_dir
+      run_dir    = local.run_dir
+      kubeconfig = local.kubeconfig_path
     }
 
     # Non-secret process environment. NO_COLOR keeps a 45-minute log readable
@@ -420,11 +493,11 @@ locals {
 
     # What ensure_ready() must guarantee before either verb runs.
     preflight = {
-      bundles                 = var.airgap.bundles
-      bootstrap_cluster_image = var.airgap.bootstrap_cluster_image
+      bundles                 = local.airgap_bundles
+      bootstrap_cluster_image = local.airgap_bootstrap_cluster_image
       nkp_version             = var.version_contract.nkp
       min_free_gib            = var.bastion.min_free_gib
-      ssh_public_key_path     = var.ssh.public_key_path
+      ssh_public_key_path     = local.node_public_key_path
     }
 
     create = {

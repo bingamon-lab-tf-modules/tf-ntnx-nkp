@@ -499,20 +499,203 @@ run "extra_args_accepts_an_unmodelled_flag" {
 }
 
 ##################################################
-# GitOps is deferred and must stay off
+# Catalog — the seam to nkp-platform
+#
+# Registration is one Flux OCIRepository per entry, created by
+# `nkp create catalog-application`. These pin the argv, because the argv IS the
+# interface: a wrong flag surfaces as a catalog that never appears in Kommander
+# rather than as an error.
 ##################################################
 
-run "gitops_cannot_be_enabled_yet" {
+run "catalog_is_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = output.contract.catalog.enabled == false
+    error_message = "Catalog must default to off so every existing cluster file stays valid."
+  }
+
+  assert {
+    condition     = length(output.contract.catalog.entries) == 0
+    error_message = "A disabled catalog must register nothing."
+  }
+}
+
+run "a_tag_entry_renders_the_expected_argv" {
   command = plan
 
   variables {
-    gitops = {
+    catalog = {
       enabled = true
-      url     = "ssh://git@example/repo.git"
+      entries = {
+        nkp-platform = {
+          url     = "oci://registry.example.com/nkp-platform/collection"
+          version = { tag = "v1.0.0" }
+        }
+      }
     }
   }
 
-  expect_failures = [var.gitops]
+  assert {
+    condition = output.contract.catalog.entries["nkp-platform"].argv == [
+      "nkp", "create", "catalog-application",
+      "--url", "oci://registry.example.com/nkp-platform/collection",
+      "--tag", "v1.0.0",
+      "--workspace", "kommander-workspace",
+      "--interval", "6h", "--timeout", "1m",
+    ]
+    error_message = "Unexpected catalog argv: ${join(" ", output.contract.catalog.entries["nkp-platform"].argv)}"
+  }
+}
+
+run "semver_renders_instead_of_tag" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled = true
+      entries = {
+        p = {
+          url     = "oci://r.example.com/nkp-platform/collection"
+          version = { semver = ">=1.0.0 <2.0.0" }
+        }
+      }
+    }
+  }
+
+  # RegistryOps: a new tag inside the range rolls out with no Terraform run.
+  assert {
+    condition     = contains(output.contract.catalog.entries["p"].argv, "--semver")
+    error_message = "A semver entry must render --semver."
+  }
+
+  assert {
+    condition     = !contains(output.contract.catalog.entries["p"].argv, "--tag")
+    error_message = "A semver entry must not also render --tag."
+  }
+}
+
+run "registry_overrides_reach_the_argv" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled   = true
+      workspace = "platform-workspace"
+      registry  = { secret_ref = "harbor-pull", insecure = true }
+      entries = {
+        p = {
+          url     = "oci://r.example.com/nkp-platform/collection"
+          version = { tag = "v1" }
+          project = "platform"
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = contains(output.contract.catalog.entries["p"].argv, "--secret-ref")
+    error_message = "registry.secret_ref must reach the argv."
+  }
+
+  assert {
+    condition     = contains(output.contract.catalog.entries["p"].argv, "--insecure")
+    error_message = "registry.insecure must reach the argv."
+  }
+
+  # --project is meaningless to nkp without --workspace, so both must appear.
+  assert {
+    condition = alltrue([
+      contains(output.contract.catalog.entries["p"].argv, "--project"),
+      contains(output.contract.catalog.entries["p"].argv, "platform-workspace"),
+    ])
+    error_message = "A project entry must carry both --project and the resolved --workspace."
+  }
+}
+
+run "an_entry_with_no_version_is_refused" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled = true
+      entries = {
+        p = {
+          url     = "oci://r.example.com/x/y"
+          version = {}
+        }
+      }
+    }
+  }
+
+  # Flux would silently follow `latest`, and two clusters built a week apart
+  # from identical config would get different platform versions.
+  expect_failures = [var.catalog]
+}
+
+run "an_entry_with_two_versions_is_refused" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled = true
+      entries = {
+        p = {
+          url     = "oci://r.example.com/x/y"
+          version = { tag = "v1", semver = ">=1.0.0" }
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.catalog]
+}
+
+run "a_git_url_is_refused" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled = true
+      entries = {
+        p = {
+          url     = "https://github.com/example/nkp-platform.git"
+          version = { tag = "v1" }
+        }
+      }
+    }
+  }
+
+  # The whole point of the spike: NKP 2.18 has no external-git attach point.
+  expect_failures = [var.catalog]
+}
+
+run "semver_filter_without_semver_is_refused" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled = true
+      entries = {
+        p = {
+          url     = "oci://r.example.com/x/y"
+          version = { tag = "v1", semver_filter = "^v.*" }
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.catalog]
+}
+
+run "enabling_with_no_entries_is_refused" {
+  command = plan
+
+  variables {
+    catalog = { enabled = true }
+  }
+
+  expect_failures = [var.catalog]
 }
 
 ##################################################

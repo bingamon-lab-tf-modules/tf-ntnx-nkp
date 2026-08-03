@@ -440,6 +440,42 @@ locals {
   ]
 
   ##################################################
+  # Catalog argv, one per entry
+  #
+  # `nkp create catalog-application` rather than hand-rolled YAML: the CLI
+  # patches the OCIRepository with the cluster's own registry credentials, and
+  # owns the catalog label Kommander looks for. Rendering the CR ourselves would
+  # reimplement both and drift the day NKP changes either.
+  #
+  # `catalog-collection` is an ALIAS of this verb -- its own --help says so, and
+  # both emit an identical OCIRepository differing only in name and URL -- so
+  # one code path covers a single app and a whole collection.
+  ##################################################
+
+  catalog_workspace_default = try(var.catalog.workspace, "kommander-workspace")
+
+  catalog_argv = {
+    for name, entry in try(var.catalog.entries, {}) : name => concat(
+      ["nkp", "create", "catalog-application", "--url", entry.url],
+
+      # Exactly one is non-null; the variable's validation guarantees it.
+      entry.version.digest != null ? ["--digest", entry.version.digest] : [],
+      entry.version.semver != null ? ["--semver", entry.version.semver] : [],
+      entry.version.tag != null ? ["--tag", entry.version.tag] : [],
+
+      ["--workspace", coalesce(entry.workspace, local.catalog_workspace_default)],
+      entry.project != null ? ["--project", entry.project] : [],
+
+      # Naming a secret implies --skip-oci-registry-patches inside nkp, so the
+      # two are never both needed.
+      try(var.catalog.registry.secret_ref, null) != null ? ["--secret-ref", var.catalog.registry.secret_ref] : [],
+      try(var.catalog.registry.insecure, false) ? ["--insecure"] : [],
+
+      ["--interval", entry.interval, "--timeout", entry.timeout],
+    )
+  }
+
+  ##################################################
   # The contract
   ##################################################
 
@@ -510,9 +546,20 @@ locals {
       timeout = var.misc.timeout
     }
 
-    # Deferred. Present so the contract shape does not change when it lands.
-    gitops = {
-      enabled = false
+    # One rendered argv per catalog entry, for the hook to run on the bastion.
+    #
+    # Carries no credential: registry.secret_ref names a Kubernetes secret that
+    # already exists in the cluster, so this stays safe on disk at 0644 like the
+    # rest of the contract.
+    catalog = {
+      enabled = try(var.catalog.enabled, false)
+      entries = {
+        for name, argv in local.catalog_argv : name => {
+          argv      = argv
+          url       = var.catalog.entries[name].url
+          workspace = coalesce(var.catalog.entries[name].workspace, local.catalog_workspace_default)
+        }
+      }
     }
   }
 

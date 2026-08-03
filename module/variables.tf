@@ -522,26 +522,137 @@ variable "misc" {
 }
 
 ##################################################
-# GitOps — DEFERRED, schema only
+# Catalog — the GitOps/RegistryOps seam to nkp-platform
 ##################################################
 
-# The seam to nkp-platform: a deploy-key secret, a Flux GitRepository and one
-# root Kustomization. NOT IMPLEMENTED — NKP 2.18 also runs its own internal
-# GitOps host (git-operator), and which resources Kommander expects alongside it
-# is unconfirmed. Keys exist so enabling it later is not a breaking change.
-variable "gitops" {
+# HOW nkp-platform ACTUALLY REACHES THE CLUSTER, established by spiking a live
+# NKP 2.18 cluster (ADR 0018 Revision 2026-08-03).
+#
+# This replaces a deferred `gitops` variable that assumed the seam was a deploy
+# key, a Flux GitRepository and a root Kustomization pointed at an external git
+# repo. Two findings killed that:
+#
+#   1. `nkp create cluster` has NO gitops flags at all, so this was never
+#      create-time argv.
+#   2. NKP 2.18 offers no supported way to point at an external git repo. It
+#      runs its own git server (git-operator) for its own platform apps, and
+#      exposes no CRD or CLI flag to add a second git source.
+#
+# The sanctioned extension point is the CATALOG, and a catalog registration is
+# exactly one Flux OCIRepository carrying an NKP label. So the unit here is an
+# OCI artefact and a tag: RegistryOps, where a tag is the release gate.
+#
+# That does not give up GitOps. A catalog application may itself contain a Flux
+# GitRepository + Kustomization, so git-driven content is available INSIDE an
+# entry -- the two compose rather than compete, and nothing here constrains
+# which nkp-platform uses.
+#
+# WHAT THIS MODULE DOES NOT DO. It registers a catalog; it does not build or
+# push one, and it does not model what is inside. That boundary is ADR 0018's
+# "everything inside the cluster after Flux" and it is why the entire interface
+# with nkp-platform is two strings: a URL and a version.
+variable "catalog" {
   type = object({
     enabled = optional(bool, false)
-    url     = optional(string, null)
-    branch  = optional(string, "main")
-    path    = optional(string, null)
+
+    # Default target for every entry. Kommander scopes catalogs to a workspace,
+    # and optionally to a project within it.
+    workspace = optional(string, "kommander-workspace")
+    project   = optional(string, null)
+
+    # How the cluster authenticates to the registry.
+    #
+    # secret_ref null is the AIR-GAP DEFAULT and the common case: `nkp` patches
+    # the OCIRepository with the CAPI cluster's own registry-mirror credentials,
+    # which in an air-gapped estate already point at the right registry. Naming
+    # a secret (type kubernetes.io/dockerconfigjson) overrides that, for a
+    # catalog registry that differs from the bundle mirror.
+    #
+    # A NAME, never a value: no credential belongs in this plane or in state.
+    registry = optional(object({
+      secret_ref = optional(string, null)
+      insecure   = optional(bool, false)
+    }), {})
+
+    # Keyed by name, like the clusters map one level up: a validation error
+    # then names the offending entry, and adding a second catalog is additive.
+    entries = optional(map(object({
+      url = string
+
+      # EXACTLY ONE of these, enforced below.
+      version = object({
+        tag           = optional(string, null)
+        semver        = optional(string, null)
+        semver_filter = optional(string, null)
+        digest        = optional(string, null)
+      })
+
+      workspace = optional(string, null)
+      project   = optional(string, null)
+      interval  = optional(string, "6h")
+      timeout   = optional(string, "1m")
+      suspend   = optional(bool, false)
+
+      # Cosign signature verification. Optional, and off by default: nothing in
+      # this estate signs artefacts yet. Present so adopting it later is not a
+      # breaking change to this file's shape.
+      verify = optional(object({
+        provider   = optional(string, "cosign")
+        secret_ref = optional(string, null)
+        match_oidc_identity = optional(list(object({
+          issuer  = string
+          subject = string
+        })), null)
+      }), null)
+    })), {})
   })
   default     = {}
-  description = "GitOps handoff to nkp-platform. Deferred: setting enabled = true is refused until the mechanism is verified."
+  description = "Catalog registrations handed to nkp-platform. Each entry becomes one Flux OCIRepository carrying NKP's catalog label."
 
   validation {
-    condition     = !try(var.gitops.enabled, false)
-    error_message = "gitops.enabled is not implemented yet and must stay false. The attach mechanism needs verification against a live cluster before it can be rendered (ADR 0018 Revision, 'Deferred')."
+    condition     = !try(var.catalog.enabled, false) || length(try(var.catalog.entries, {})) > 0
+    error_message = "catalog.enabled is true but catalog.entries is empty. Enabling it registers nothing, which is almost certainly not what was meant -- set enabled = false, or add an entry."
+  }
+
+  validation {
+    condition = alltrue([
+      for name, e in try(var.catalog.entries, {}) : startswith(e.url, "oci://")
+    ])
+    error_message = "Every catalog entry url must be an OCI reference beginning oci://. A catalog is an OCI artefact, not a git repository -- see this variable's comment for why."
+  }
+
+  # EXACTLY ONE REF, REQUIRED.
+  #
+  # Flux defaults an OCIRepository with no ref to the `latest` tag. In an
+  # air-gapped platform repo that is how a cluster becomes unreproducible: two
+  # clusters built a week apart from identical config get different platform
+  # versions, and nothing in the config records which. Requiring one forbids it.
+  validation {
+    condition = alltrue([
+      for name, e in try(var.catalog.entries, {}) :
+      length([
+        for v in [e.version.tag, e.version.semver, e.version.digest] : v if v != null
+      ]) == 1
+    ])
+    error_message = "Each catalog entry needs EXACTLY ONE of version.tag, version.semver or version.digest. None means Flux would silently follow the `latest` tag, which makes a cluster unreproducible; more than one is ambiguous (Flux resolves digest > semver > tag)."
+  }
+
+  # semver_filter is a regex applied WITHIN a semver range, so it is meaningless
+  # on its own and silently ignored beside a tag or digest.
+  validation {
+    condition = alltrue([
+      for name, e in try(var.catalog.entries, {}) :
+      e.version.semver_filter == null || e.version.semver != null
+    ])
+    error_message = "catalog entry sets version.semver_filter without version.semver. The filter narrows tags within a semver range and does nothing on its own."
+  }
+
+  validation {
+    condition = alltrue([
+      for name, e in try(var.catalog.entries, {}) :
+      e.project == null || coalesce(e.workspace, try(var.catalog.workspace, "")) != ""
+    ])
+    error_message = "A catalog entry naming a project must also resolve a workspace: `nkp` requires --workspace whenever --project is given."
   }
 }
 

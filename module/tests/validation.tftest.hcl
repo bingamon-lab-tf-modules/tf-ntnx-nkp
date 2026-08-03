@@ -30,7 +30,7 @@ variables {
   cluster_name = "nkp-mgmt"
 
   bastion = {
-    host = "nkp-bastion.lab.local"
+    host = "nkp-bastion.example.test"
   }
 
   version_contract = {
@@ -39,7 +39,7 @@ variables {
   }
 
   prism_central = {
-    endpoint = "pc.lab.local"
+    endpoint = "pc.example.test"
     user     = "nkp-capx"
   }
 
@@ -61,11 +61,11 @@ variables {
   }
 
   control_plane = {
-    endpoint_ip = "192.168.84.150"
+    endpoint_ip = "192.0.2.150"
   }
 
   networking = {
-    load_balancer_ip_range = "192.168.84.151-192.168.84.170"
+    load_balancer_ip_range = "192.0.2.151-192.0.2.170"
   }
 
   csi = {
@@ -192,7 +192,7 @@ run "cache_root_and_run_root_may_not_be_the_same" {
 
   variables {
     bastion = {
-      host       = "nkp-bastion.lab.local"
+      host       = "nkp-bastion.example.test"
       cache_root = "/var/tmp/lz-cli"
       run_root   = "/var/tmp/lz-cli/"
     }
@@ -206,7 +206,7 @@ run "roots_must_be_absolute" {
 
   variables {
     bastion = {
-      host     = "nkp-bastion.lab.local"
+      host     = "nkp-bastion.example.test"
       run_root = "run/lz-cli"
     }
   }
@@ -224,7 +224,7 @@ run "vip_inside_load_balancer_range_is_rejected" {
   variables {
     # MetalLB would hand the control-plane VIP out to a Service.
     control_plane = {
-      endpoint_ip = "192.168.84.155"
+      endpoint_ip = "192.0.2.155"
     }
   }
 
@@ -239,7 +239,7 @@ run "reversed_load_balancer_range_is_rejected" {
 
   variables {
     networking = {
-      load_balancer_ip_range = "192.168.84.170-192.168.84.151"
+      load_balancer_ip_range = "192.0.2.170-192.0.2.151"
     }
   }
 
@@ -254,7 +254,7 @@ run "tiny_load_balancer_range_is_rejected" {
 
   variables {
     networking = {
-      load_balancer_ip_range = "192.168.84.151-192.168.84.152"
+      load_balancer_ip_range = "192.0.2.151-192.0.2.152"
     }
   }
 
@@ -269,7 +269,7 @@ run "overlapping_pod_and_service_cidrs_are_rejected" {
 
   variables {
     networking = {
-      load_balancer_ip_range = "192.168.84.151-192.168.84.170"
+      load_balancer_ip_range = "192.0.2.151-192.0.2.170"
       pod_cidr               = "172.20.0.0/16"
       service_cidr           = "172.20.128.0/17"
     }
@@ -404,7 +404,7 @@ run "even_control_plane_replicas_are_rejected" {
 
   variables {
     control_plane = {
-      endpoint_ip = "192.168.84.150"
+      endpoint_ip = "192.0.2.150"
       replicas    = 2
     }
   }
@@ -443,7 +443,7 @@ run "prism_central_endpoint_with_scheme_is_rejected" {
 
   variables {
     prism_central = {
-      endpoint = "https://pc.lab.local"
+      endpoint = "https://pc.example.test"
       user     = "nkp-capx"
     }
   }
@@ -530,7 +530,7 @@ run "enforce_validation_fires_the_precondition" {
     enforce_validation = true
 
     control_plane = {
-      endpoint_ip = "192.168.84.155" # inside the load-balancer range
+      endpoint_ip = "192.0.2.155" # inside the load-balancer range
     }
   }
 

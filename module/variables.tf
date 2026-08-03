@@ -570,6 +570,10 @@ variable "catalog" {
     #
     # A NAME, never a value: no credential belongs in this plane or in state.
     registry = optional(object({
+      # The USERNAME only. Its password lives in nkp/<cluster>.sops.json at
+      # registry.catalog_password, and the hook builds the pull secret from the
+      # two -- so a credential never enters this plane, the contract or state.
+      username   = optional(string, null)
       secret_ref = optional(string, null)
       insecure   = optional(bool, false)
     }), {})
@@ -653,6 +657,19 @@ variable "catalog" {
       e.project == null || coalesce(e.workspace, try(var.catalog.workspace, "")) != ""
     ])
     error_message = "A catalog entry naming a project must also resolve a workspace: `nkp` requires --workspace whenever --project is given."
+  }
+
+  # The hook creates the pull secret from registry.username plus the password in
+  # SOPS, and then passes --secret-ref. A username with no secret_ref would be
+  # collected and never used; a secret_ref with no username would have the hook
+  # build a dockerconfigjson with no login in it.
+  validation {
+    condition = (
+      try(var.catalog.registry.username, null) == null
+      ) == (
+      try(var.catalog.registry.secret_ref, null) == null
+    )
+    error_message = "catalog.registry.username and catalog.registry.secret_ref must be set together: the hook builds the pull secret named by secret_ref from that username and the password in nkp/<cluster>.sops.json. Set neither to inherit the cluster's own registry credentials, which is the air-gapped default."
   }
 }
 

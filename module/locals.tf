@@ -553,6 +553,14 @@ locals {
     # rest of the contract.
     catalog = {
       enabled = try(var.catalog.enabled, false)
+
+      # For the hook, which creates the pull secret named by secret_ref from
+      # this username and the password it decrypts from SOPS. Names only.
+      registry = {
+        username   = try(var.catalog.registry.username, null)
+        secret_ref = try(var.catalog.registry.secret_ref, null)
+        insecure   = try(var.catalog.registry.insecure, false)
+      }
       entries = {
         for name, argv in local.catalog_argv : name => {
           argv      = argv

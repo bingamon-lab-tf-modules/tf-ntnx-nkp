@@ -582,7 +582,7 @@ run "registry_overrides_reach_the_argv" {
     catalog = {
       enabled   = true
       workspace = "platform-workspace"
-      registry  = { secret_ref = "harbor-pull", insecure = true }
+      registry  = { username = "robot$platform", secret_ref = "harbor-pull", insecure = true }
       entries = {
         p = {
           url     = "oci://r.example.com/nkp-platform/collection"
@@ -610,6 +610,79 @@ run "registry_overrides_reach_the_argv" {
       contains(output.contract.catalog.entries["p"].argv, "platform-workspace"),
     ])
     error_message = "A project entry must carry both --project and the resolved --workspace."
+  }
+}
+
+run "a_username_without_a_secret_ref_is_refused" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled  = true
+      registry = { username = "someone" }
+      entries = {
+        p = {
+          url     = "oci://r.example.com/x/y"
+          version = { tag = "v1" }
+        }
+      }
+    }
+  }
+
+  # It would be collected and never used: the hook only builds a pull secret
+  # when it has somewhere to put it.
+  expect_failures = [var.catalog]
+}
+
+run "a_secret_ref_without_a_username_is_refused" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled  = true
+      registry = { secret_ref = "ghcr-pull" }
+      entries = {
+        p = {
+          url     = "oci://r.example.com/x/y"
+          version = { tag = "v1" }
+        }
+      }
+    }
+  }
+
+  # The hook would build a dockerconfigjson with no login in it.
+  expect_failures = [var.catalog]
+}
+
+run "the_registry_username_reaches_the_contract_but_no_password_does" {
+  command = plan
+
+  variables {
+    catalog = {
+      enabled  = true
+      registry = { username = "bingamon-lab", secret_ref = "ghcr-nkp-platform" }
+      entries = {
+        p = {
+          url     = "oci://ghcr.io/bingamon-lab/nkp-platform/nkp-mgmt-1"
+          version = { tag = "development" }
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = output.contract.catalog.registry.username == "bingamon-lab"
+    error_message = "The hook needs the username to build the pull secret."
+  }
+
+  # The contract is written to disk at 0644. A password reaching it would be a
+  # leak, so the whole block is asserted to be names only.
+  assert {
+    condition = length(setsubtract(
+      keys(output.contract.catalog.registry),
+      ["username", "secret_ref", "insecure"],
+    )) == 0
+    error_message = "contract.catalog.registry must carry names only, never a credential: ${join(",", keys(output.contract.catalog.registry))}"
   }
 }
 

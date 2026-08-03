@@ -522,6 +522,40 @@ variable "misc" {
 }
 
 ##################################################
+# Licence
+##################################################
+
+# APPLIED AUTOMATICALLY, BECAUSE THE DEFAULT IS NOT MERELY COSMETIC.
+#
+# An unlicensed cluster reports dkpLevel: Starter, and Starter gates most of
+# what a management cluster is for: workspace management, projects, attaching
+# workload clusters, and FluxCD as an application. Catalog applications
+# themselves declare `licensing: [Pro, Ultimate]` in their metadata. So a
+# cluster that comes up unlicensed is not a working cluster with a nag banner --
+# it is one that cannot do the next step.
+#
+# There is no `nkp` verb for this; the documented route is a Secret holding the
+# key plus a License CR referencing it by name, both applied with kubectl. The
+# hook does exactly that, so the key travels from SOPS to the cluster without
+# passing through argv, this variable, the contract or the state.
+variable "license" {
+  type = object({
+    enabled = optional(bool, false)
+
+    # The Kubernetes Secret the hook creates and the License CR points at. A
+    # NAME; the key itself lives in nkp/<cluster>.sops.json at license.key.
+    secret_name = optional(string, "nkp-license")
+  })
+  default     = {}
+  description = "NKP licence application. The key is read from SOPS by the hook; only its Secret's name appears here."
+
+  validation {
+    condition     = !try(var.license.enabled, false) || trimspace(try(var.license.secret_name, "")) != ""
+    error_message = "license.secret_name must be set when license.enabled is true: it names the Secret the hook creates and the License CR references."
+  }
+}
+
+##################################################
 # Catalog — the GitOps/RegistryOps seam to nkp-platform
 ##################################################
 

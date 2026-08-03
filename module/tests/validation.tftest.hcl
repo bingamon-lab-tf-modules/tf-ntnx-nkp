@@ -499,6 +499,62 @@ run "extra_args_accepts_an_unmodelled_flag" {
 }
 
 ##################################################
+# Licence
+##################################################
+
+run "license_is_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = output.contract.license.enabled == false
+    error_message = "Licence application must be opt-in; an estate may apply it out of band."
+  }
+}
+
+run "an_enabled_license_names_its_secret" {
+  command = plan
+
+  variables {
+    license = { enabled = true }
+  }
+
+  # The hook creates this Secret and the License CR references it, so the
+  # default has to be a usable name rather than empty.
+  assert {
+    condition     = output.contract.license.secret_name == "nkp-license"
+    error_message = "An enabled licence must carry the Secret name the hook creates."
+  }
+}
+
+run "an_enabled_license_with_no_secret_name_is_refused" {
+  command = plan
+
+  variables {
+    license = { enabled = true, secret_name = "  " }
+  }
+
+  expect_failures = [var.license]
+}
+
+run "the_license_contract_carries_no_key" {
+  command = plan
+
+  variables {
+    license = { enabled = true, secret_name = "nkp-license" }
+  }
+
+  # The contract is written to disk at 0644. The licence key is a credential
+  # and lives in SOPS; only the Secret's NAME may appear here.
+  assert {
+    condition = length(setsubtract(
+      keys(output.contract.license),
+      ["enabled", "secret_name"],
+    )) == 0
+    error_message = "contract.license must carry names only: ${join(",", keys(output.contract.license))}"
+  }
+}
+
+##################################################
 # Catalog — the seam to nkp-platform
 #
 # Registration is one Flux OCIRepository per entry, created by

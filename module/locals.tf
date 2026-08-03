@@ -546,6 +546,14 @@ locals {
       timeout = var.misc.timeout
     }
 
+    # Applied BEFORE the catalog: catalog applications declare
+    # `licensing: [Pro, Ultimate]`, so registering one against an unlicensed
+    # (Starter) cluster registers something it is not entitled to run.
+    license = {
+      enabled     = try(var.license.enabled, false)
+      secret_name = try(var.license.secret_name, "nkp-license")
+    }
+
     # One rendered argv per catalog entry, for the hook to run on the bastion.
     #
     # Carries no credential: registry.secret_ref names a Kubernetes secret that

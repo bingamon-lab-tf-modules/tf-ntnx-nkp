@@ -560,103 +560,209 @@ variable "license" {
 ##################################################
 
 # HOW nkp-platform ACTUALLY REACHES THE CLUSTER, established by spiking a live
-# NKP 2.18 cluster (ADR 0018 Revision 2026-08-03).
+# NKP 2.18 cluster (ADR 0018 Revision 2026-08-03, revised again 2026-08-05).
 #
-# This replaces a deferred `gitops` variable that assumed the seam was a deploy
-# key, a Flux GitRepository and a root Kustomization pointed at an external git
-# repo. Two findings killed that:
+# THE SEAM. lz-paas provisions the management cluster and hands over. This
+# variable is the handover, and it has three parts applied in a REQUIRED ORDER
+# the hook enforces in code rather than in lz.yaml, so reordering cannot break
+# it:
 #
-#   1. `nkp create cluster` has NO gitops flags at all, so this was never
-#      create-time argv.
-#   2. NKP 2.18 offers no supported way to point at an external git repo. It
-#      runs its own git server (git-operator) for its own platform apps, and
-#      exposes no CRD or CLI flag to add a second git source.
+#   workspaces   admin scope only, usually empty -- tenants are day-2, via Flux
+#   registryops  the MENU: OCI catalogs, what exists and at what version
+#   gitops       the ORDER: Flux against `deployed`, what is deployed where
 #
-# The sanctioned extension point is the CATALOG, and a catalog registration is
-# exactly one Flux OCIRepository carrying an NKP label. So the unit here is an
-# OCI artefact and a tag: RegistryOps, where a tag is the release gate.
+# The licence comes before all three. Starter gates workspace management,
+# projects and catalog applications, so an unlicensed cluster cannot do any of
+# this.
 #
-# That does not give up GitOps. A catalog application may itself contain a Flux
-# GitRepository + Kustomization, so git-driven content is available INSIDE an
-# entry -- the two compose rather than compete, and nothing here constrains
-# which nkp-platform uses.
+# WHY `gitops` IS BACK, HAVING BEEN DELETED. The 2026-08-03 revision removed a
+# `gitops` variable, on two findings that still stand:
 #
-# WHAT THIS MODULE DOES NOT DO. It registers a catalog; it does not build or
-# push one, and it does not model what is inside. That boundary is ADR 0018's
-# "everything inside the cluster after Flux" and it is why the entire interface
-# with nkp-platform is two strings: a URL and a version.
-variable "catalog" {
+#   1. `nkp create cluster` has NO gitops flags, so this was never create-time
+#      argv -- and it still is not: gitops renders no argv at all.
+#   2. NKP 2.18 offers no supported way to attach a SECOND SOURCE TO ITS OWN
+#      git-operator. No CRD, no CLI flag, and `nkp experimental gitops clone`
+#      only clones the internal repo.
+#
+# Neither finding forbids applying OUR OWN Flux GitRepository + Kustomization
+# with kubectl, which is what this does -- the same route the licence Secret and
+# the catalog pull secret already take. The deleted variable assumed the first
+# thing; this one does the second. They are not the same design, and the earlier
+# ADR explicitly left this open.
+#
+# WHAT THIS MODULE DOES NOT DO. It registers and it points; it does not build,
+# push, or model what is inside. That boundary is ADR 0018's "everything inside
+# the cluster after Flux".
+variable "platform" {
   type = object({
-    enabled = optional(bool, false)
-
-    # Default target for every entry. Kommander scopes catalogs to a workspace,
-    # and optionally to a project within it.
-    workspace = optional(string, "kommander-workspace")
-    project   = optional(string, null)
-
-    # How the cluster authenticates to the registry.
+    # ADMIN-SCOPE WORKSPACES ONLY, and normally EMPTY.
     #
-    # secret_ref null is the AIR-GAP DEFAULT and the common case: `nkp` patches
-    # the OCIRepository with the CAPI cluster's own registry-mirror credentials,
-    # which in an air-gapped estate already point at the right registry. Naming
-    # a secret (type kubernetes.io/dockerconfigjson) overrides that, for a
-    # catalog registry that differs from the bundle mirror.
+    # kommander-workspace is created by the NKP install, and TENANT workspaces
+    # are day-2: the tenant list is not known on day 1, and onboarding tenant 26
+    # must not require an lz-paas run. Those come from nkp-platform over Flux.
     #
-    # A NAME, never a value: no credential belongs in this plane or in state.
-    registry = optional(object({
-      # The USERNAME only. Its password lives in nkp/<cluster>.sops.json at
-      # registry.catalog_password, and the hook builds the pull secret from the
-      # two -- so a credential never enters this plane, the contract or state.
-      username   = optional(string, null)
-      secret_ref = optional(string, null)
-      insecure   = optional(bool, false)
+    # namespaceName IS PINNED TO THE NAME, ALWAYS -- the argv below always passes
+    # -n. `nkp create workspace tenant-a` without it GENERATES a suffixed
+    # namespace, observed as `tenant-a-2r6tk` on 2026-08-04, and nkp-platform
+    # renders every manifest against the workspace NAME. Unpinned, each one
+    # targets a namespace that never exists, and no offline check catches it.
+    workspaces = optional(object({
+      enabled = optional(bool, false)
+      entries = optional(list(object({
+        name         = string
+        display_name = optional(string, null)
+      })), [])
     }), {})
 
-    # Keyed by name, like the clusters map one level up: a validation error
-    # then names the offending entry, and adding a second catalog is additive.
-    entries = optional(map(object({
-      url = string
+    # THE MENU. Each entry becomes one Flux OCIRepository per workspace,
+    # carrying NKP's catalog label.
+    registryops = optional(object({
+      enabled = optional(bool, false)
 
-      # EXACTLY ONE of these, enforced below.
-      version = object({
-        tag           = optional(string, null)
-        semver        = optional(string, null)
-        semver_filter = optional(string, null)
-        digest        = optional(string, null)
-      })
-
-      workspace = optional(string, null)
-      project   = optional(string, null)
-      interval  = optional(string, "6h")
-      timeout   = optional(string, "1m")
-      suspend   = optional(bool, false)
-
-      # Cosign signature verification. Optional, and off by default: nothing in
-      # this estate signs artefacts yet. Present so adopting it later is not a
-      # breaking change to this file's shape.
-      verify = optional(object({
-        provider   = optional(string, "cosign")
+      # How the cluster authenticates to the registry.
+      #
+      # secret_ref null is the AIR-GAP DEFAULT and the common case: `nkp`
+      # patches the OCIRepository with the CAPI cluster's own registry-mirror
+      # credentials, which in an air-gapped estate already point at the right
+      # registry. Naming a secret (type kubernetes.io/dockerconfigjson)
+      # overrides that, for a catalog registry that differs from the mirror.
+      #
+      # A NAME, never a value: no credential belongs in this plane or in state.
+      registry = optional(object({
+        # The USERNAME only. Its password lives in nkp/<cluster>.sops.json at
+        # platform.registryops.password, and the hook builds the pull secret
+        # from the two -- so a credential never enters this plane, the contract
+        # or state.
+        username   = optional(string, null)
         secret_ref = optional(string, null)
-        match_oidc_identity = optional(list(object({
-          issuer  = string
-          subject = string
-        })), null)
-      }), null)
-    })), {})
+        insecure   = optional(bool, false)
+      }), {})
+
+      # Keyed by name, like the clusters map one level up: a validation error
+      # then names the offending entry, and adding a second catalog is additive.
+      entries = optional(map(object({
+        url = string
+
+        # EXACTLY ONE of these, enforced below.
+        version = object({
+          tag           = optional(string, null)
+          semver        = optional(string, null)
+          semver_filter = optional(string, null)
+          digest        = optional(string, null)
+        })
+
+        # A LIST, not a scalar. One catalog is commonly wanted in several places
+        # -- nkp-tenant-apps has to appear in every tenant's UI -- and repeating
+        # the whole entry per workspace would repeat the version pin too, which
+        # is the one thing that must not drift between them. Each element
+        # produces its own registration argv.
+        workspaces = list(string)
+
+        project  = optional(string, null)
+        interval = optional(string, "6h")
+        timeout  = optional(string, "1m")
+        suspend  = optional(bool, false)
+
+        # Cosign signature verification. Optional, and off by default: nothing
+        # in this estate signs artefacts yet. Present so adopting it later is
+        # not a breaking change to this file's shape.
+        verify = optional(object({
+          provider   = optional(string, "cosign")
+          secret_ref = optional(string, null)
+          match_oidc_identity = optional(list(object({
+            issuer  = string
+            subject = string
+          })), null)
+        }), null)
+      })), {})
+    }), {})
+
+    # THE ORDER. Renders NO ARGV -- the hook applies a GitRepository and a
+    # Kustomization with kubectl, so everything here is carried through to the
+    # contract as configuration rather than as a command.
+    gitops = optional(object({
+      enabled = optional(bool, false)
+
+      # ONE OF THE FEW VALUES THAT CHANGES ON SITE: the GitHub Enterprise host,
+      # which also serves the OCI catalogs and so breaks the chicken-and-egg of
+      # Harbor not existing until the clusters that host it do.
+      url = optional(string, null)
+
+      # EXACTLY ONE of branch / tag / commit, enforced below. `deployed` is
+      # force-pushed every run, so a branch ref is the normal choice; a commit
+      # ref pins a cluster to exactly one render.
+      ref = optional(object({
+        branch = optional(string, null)
+        tag    = optional(string, null)
+        commit = optional(string, null)
+      }), {})
+
+      # Defaults to ./<cluster name> in locals. nkp-platform's CI writes
+      # .render/<fleet>/ to the root of `deployed`, and a fleet is named after
+      # its management cluster.
+      path = optional(string, null)
+
+      # A NAME. The hook builds this Secret from the deploy key and known_hosts
+      # in nkp/<cluster>.sops.json.
+      secret_ref = optional(string, null)
+
+      # UNVERIFIED against a live cluster as of 2026-08-05: NKP runs
+      # kommander-flux for its own platform applications, and whether it
+      # reconciles CRs placed here is the first thing to confirm.
+      namespace = optional(string, "kommander-flux")
+
+      interval = optional(string, "10m")
+      timeout  = optional(string, null)
+
+      # Deleting a cluster file in nkp-platform deletes the cluster. The guard
+      # against accident lives in nkp-platform, which refuses a render that
+      # removes a cluster without an explicit decommission -- not here, because
+      # by the time Flux sees it the decision was made two repos ago.
+      prune = optional(bool, true)
+
+      # Null means the kustomize-controller's own identity, the normal case.
+      service_account = optional(string, null)
+
+      suspend = optional(bool, false)
+    }), {})
   })
   default     = {}
-  description = "Catalog registrations handed to nkp-platform. Each entry becomes one Flux OCIRepository carrying NKP's catalog label."
+  description = "The seam to nkp-platform: admin workspaces, OCI catalog registrations, and the Flux source pointed at the rendered platform branch."
+
+  ##################################################
+  # workspaces
+  ##################################################
 
   validation {
-    condition     = !try(var.catalog.enabled, false) || length(try(var.catalog.entries, {})) > 0
-    error_message = "catalog.enabled is true but catalog.entries is empty. Enabling it registers nothing, which is almost certainly not what was meant -- set enabled = false, or add an entry."
+    condition     = !try(var.platform.workspaces.enabled, false) || length(try(var.platform.workspaces.entries, [])) > 0
+    error_message = "platform.workspaces.enabled is true but entries is empty. Enabling it creates nothing -- set enabled = false, or add an entry. Note tenant workspaces are day-2 and come from nkp-platform over Flux; this block is for admin-scope workspaces only."
+  }
+
+  # A workspace name becomes a NAMESPACE name, because the argv always pins -n.
+  # A name that is not a valid DNS label would fail at apply on the cluster,
+  # which is a 45-minute round trip to learn a typo.
+  validation {
+    condition = alltrue([
+      for w in try(var.platform.workspaces.entries, []) :
+      can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", w.name))
+    ])
+    error_message = "Every platform.workspaces entry name must be a valid Kubernetes namespace name (lowercase alphanumeric and hyphens, starting and ending alphanumeric): it becomes the namespace as well as the workspace, because the namespace is always pinned to the name."
+  }
+
+  ##################################################
+  # registryops
+  ##################################################
+
+  validation {
+    condition     = !try(var.platform.registryops.enabled, false) || length(try(var.platform.registryops.entries, {})) > 0
+    error_message = "platform.registryops.enabled is true but entries is empty. Enabling it registers nothing, which is almost certainly not what was meant -- set enabled = false, or add an entry."
   }
 
   validation {
     condition = alltrue([
-      for name, e in try(var.catalog.entries, {}) : startswith(e.url, "oci://")
+      for name, e in try(var.platform.registryops.entries, {}) : startswith(e.url, "oci://")
     ])
-    error_message = "Every catalog entry url must be an OCI reference beginning oci://. A catalog is an OCI artefact, not a git repository -- see this variable's comment for why."
+    error_message = "Every platform.registryops entry url must be an OCI reference beginning oci://. A catalog is an OCI artefact, not a git repository -- see this variable's comment for why."
   }
 
   # EXACTLY ONE REF, REQUIRED.
@@ -667,30 +773,32 @@ variable "catalog" {
   # versions, and nothing in the config records which. Requiring one forbids it.
   validation {
     condition = alltrue([
-      for name, e in try(var.catalog.entries, {}) :
+      for name, e in try(var.platform.registryops.entries, {}) :
       length([
         for v in [e.version.tag, e.version.semver, e.version.digest] : v if v != null
       ]) == 1
     ])
-    error_message = "Each catalog entry needs EXACTLY ONE of version.tag, version.semver or version.digest. None means Flux would silently follow the `latest` tag, which makes a cluster unreproducible; more than one is ambiguous (Flux resolves digest > semver > tag)."
+    error_message = "Each platform.registryops entry needs EXACTLY ONE of version.tag, version.semver or version.digest. None means Flux would silently follow the `latest` tag, which makes a cluster unreproducible; more than one is ambiguous (Flux resolves digest > semver > tag)."
   }
 
   # semver_filter is a regex applied WITHIN a semver range, so it is meaningless
   # on its own and silently ignored beside a tag or digest.
   validation {
     condition = alltrue([
-      for name, e in try(var.catalog.entries, {}) :
+      for name, e in try(var.platform.registryops.entries, {}) :
       e.version.semver_filter == null || e.version.semver != null
     ])
-    error_message = "catalog entry sets version.semver_filter without version.semver. The filter narrows tags within a semver range and does nothing on its own."
+    error_message = "A platform.registryops entry sets version.semver_filter without version.semver. The filter narrows tags within a semver range and does nothing on its own."
   }
 
+  # An entry with no workspace registers nowhere. The type makes the field
+  # required but not non-empty, and `workspaces = []` would render zero argv and
+  # look like a success.
   validation {
     condition = alltrue([
-      for name, e in try(var.catalog.entries, {}) :
-      e.project == null || coalesce(e.workspace, try(var.catalog.workspace, "")) != ""
+      for name, e in try(var.platform.registryops.entries, {}) : length(e.workspaces) > 0
     ])
-    error_message = "A catalog entry naming a project must also resolve a workspace: `nkp` requires --workspace whenever --project is given."
+    error_message = "Every platform.registryops entry needs at least one workspace. An empty list renders no registration at all and would report success having done nothing."
   }
 
   # The hook creates the pull secret from registry.username plus the password in
@@ -699,11 +807,52 @@ variable "catalog" {
   # build a dockerconfigjson with no login in it.
   validation {
     condition = (
-      try(var.catalog.registry.username, null) == null
+      try(var.platform.registryops.registry.username, null) == null
       ) == (
-      try(var.catalog.registry.secret_ref, null) == null
+      try(var.platform.registryops.registry.secret_ref, null) == null
     )
-    error_message = "catalog.registry.username and catalog.registry.secret_ref must be set together: the hook builds the pull secret named by secret_ref from that username and the password in nkp/<cluster>.sops.json. Set neither to inherit the cluster's own registry credentials, which is the air-gapped default."
+    error_message = "platform.registryops.registry.username and .secret_ref must be set together: the hook builds the pull secret named by secret_ref from that username and the password in nkp/<cluster>.sops.json. Set neither to inherit the cluster's own registry credentials, which is the air-gapped default."
+  }
+
+  ##################################################
+  # gitops
+  ##################################################
+
+  validation {
+    condition     = !try(var.platform.gitops.enabled, false) || try(var.platform.gitops.url, null) != null
+    error_message = "platform.gitops.enabled is true but no url is set. There is no default: the repository is estate-specific and guessing one would point a cluster at somebody else's platform."
+  }
+
+  validation {
+    condition = (
+      !try(var.platform.gitops.enabled, false)
+      || can(regex("^(ssh://|https://)", try(var.platform.gitops.url, "")))
+    )
+    error_message = "platform.gitops.url must begin ssh:// or https://. ssh:// with a read-only deploy key is the estate default; scp-style git@host:org/repo is NOT accepted by Flux."
+  }
+
+  # Exactly one ref, same reasoning as the catalog version pin: no ref at all
+  # leaves Flux to pick, and more than one is ambiguous.
+  validation {
+    condition = (
+      !try(var.platform.gitops.enabled, false)
+      || length([
+        for v in [
+          try(var.platform.gitops.ref.branch, null),
+          try(var.platform.gitops.ref.tag, null),
+          try(var.platform.gitops.ref.commit, null),
+        ] : v if v != null
+      ]) == 1
+    )
+    error_message = "platform.gitops.ref needs EXACTLY ONE of branch, tag or commit. `deployed` is force-pushed every run, so branch = \"deployed\" is the normal choice; a commit pins a cluster to one render."
+  }
+
+  # The hook builds this Secret from the deploy key in SOPS. Without a name
+  # there is nothing for the GitRepository to reference, and Flux would attempt
+  # an anonymous clone that fails on a private repository.
+  validation {
+    condition     = !try(var.platform.gitops.enabled, false) || try(var.platform.gitops.secret_ref, null) != null
+    error_message = "platform.gitops.enabled is true but secret_ref is null. The hook builds that Secret from platform.gitops.ssh_key and known_hosts in nkp/<cluster>.sops.json; without a name, Flux would attempt an anonymous clone."
   }
 }
 

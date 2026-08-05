@@ -440,7 +440,25 @@ locals {
   ]
 
   ##################################################
-  # Catalog argv, one per entry
+  # Workspace argv, one per admin-scope workspace
+  #
+  # `-n` IS NOT OPTIONAL. Without it Kommander GENERATES a suffixed namespace --
+  # `nkp create workspace tenant-a` produced `tenant-a-2r6tk` on 2026-08-04 --
+  # while nkp-platform renders every manifest against the workspace NAME. The
+  # flag is rendered unconditionally rather than exposed, because there is no
+  # case in this estate where an unpinned namespace is correct and the failure
+  # is invisible until manifests silently target a namespace that never exists.
+  ##################################################
+
+  workspace_argv = {
+    for w in try(var.platform.workspaces.entries, []) : w.name => concat(
+      ["nkp", "create", "workspace", w.name, "-n", w.name],
+      w.display_name != null ? ["--display-name", w.display_name] : [],
+    )
+  }
+
+  ##################################################
+  # Catalog argv, one per (entry, workspace)
   #
   # `nkp create catalog-application` rather than hand-rolled YAML: the CLI
   # patches the OCIRepository with the cluster's own registry credentials, and
@@ -450,29 +468,42 @@ locals {
   # `catalog-collection` is an ALIAS of this verb -- its own --help says so, and
   # both emit an identical OCIRepository differing only in name and URL -- so
   # one code path covers a single app and a whole collection.
+  #
+  # FLATTENED OVER WORKSPACES, because a registration is per workspace and one
+  # catalog is commonly wanted in several. Keyed "<entry>/<workspace>" so a
+  # failure names both halves; the hook needs the pair anyway, since it places a
+  # pull secret in each workspace's namespace before registering into it.
   ##################################################
 
-  catalog_workspace_default = try(var.catalog.workspace, "kommander-workspace")
+  registrations = {
+    for r in flatten([
+      for name, entry in try(var.platform.registryops.entries, {}) : [
+        for ws in entry.workspaces : {
+          key       = "${name}/${ws}"
+          name      = name
+          workspace = ws
+          url       = entry.url
+          argv = concat(
+            ["nkp", "create", "catalog-application", "--url", entry.url],
 
-  catalog_argv = {
-    for name, entry in try(var.catalog.entries, {}) : name => concat(
-      ["nkp", "create", "catalog-application", "--url", entry.url],
+            # Exactly one is non-null; the variable's validation guarantees it.
+            entry.version.digest != null ? ["--digest", entry.version.digest] : [],
+            entry.version.semver != null ? ["--semver", entry.version.semver] : [],
+            entry.version.tag != null ? ["--tag", entry.version.tag] : [],
 
-      # Exactly one is non-null; the variable's validation guarantees it.
-      entry.version.digest != null ? ["--digest", entry.version.digest] : [],
-      entry.version.semver != null ? ["--semver", entry.version.semver] : [],
-      entry.version.tag != null ? ["--tag", entry.version.tag] : [],
+            ["--workspace", ws],
+            entry.project != null ? ["--project", entry.project] : [],
 
-      ["--workspace", coalesce(entry.workspace, local.catalog_workspace_default)],
-      entry.project != null ? ["--project", entry.project] : [],
+            # Naming a secret implies --skip-oci-registry-patches inside nkp, so
+            # the two are never both needed.
+            try(var.platform.registryops.registry.secret_ref, null) != null ? ["--secret-ref", var.platform.registryops.registry.secret_ref] : [],
+            try(var.platform.registryops.registry.insecure, false) ? ["--insecure"] : [],
 
-      # Naming a secret implies --skip-oci-registry-patches inside nkp, so the
-      # two are never both needed.
-      try(var.catalog.registry.secret_ref, null) != null ? ["--secret-ref", var.catalog.registry.secret_ref] : [],
-      try(var.catalog.registry.insecure, false) ? ["--insecure"] : [],
-
-      ["--interval", entry.interval, "--timeout", entry.timeout],
-    )
+            ["--interval", entry.interval, "--timeout", entry.timeout],
+          )
+        }
+      ]
+    ]) : r.key => r
   }
 
   ##################################################
@@ -546,35 +577,72 @@ locals {
       timeout = var.misc.timeout
     }
 
-    # Applied BEFORE the catalog: catalog applications declare
-    # `licensing: [Pro, Ultimate]`, so registering one against an unlicensed
-    # (Starter) cluster registers something it is not entitled to run.
+    # Applied BEFORE everything in `platform`: catalog applications declare
+    # `licensing: [Pro, Ultimate]`, and Starter also gates workspace management
+    # itself -- so an unlicensed cluster can do none of what follows.
     license = {
       enabled     = try(var.license.enabled, false)
       secret_name = try(var.license.secret_name, "nkp-license")
     }
 
-    # One rendered argv per catalog entry, for the hook to run on the bastion.
+    # THE SEAM TO nkp-platform, in the order the hook applies it.
     #
-    # Carries no credential: registry.secret_ref names a Kubernetes secret that
-    # already exists in the cluster, so this stays safe on disk at 0644 like the
-    # rest of the contract.
-    catalog = {
-      enabled = try(var.catalog.enabled, false)
-
-      # For the hook, which creates the pull secret named by secret_ref from
-      # this username and the password it decrypts from SOPS. Names only.
-      registry = {
-        username   = try(var.catalog.registry.username, null)
-        secret_ref = try(var.catalog.registry.secret_ref, null)
-        insecure   = try(var.catalog.registry.insecure, false)
-      }
-      entries = {
-        for name, argv in local.catalog_argv : name => {
-          argv      = argv
-          url       = var.catalog.entries[name].url
-          workspace = coalesce(var.catalog.entries[name].workspace, local.catalog_workspace_default)
+    # Carries no credential. secret_ref names a Kubernetes secret, and the
+    # gitops block names one too; the values are decrypted from SOPS by the hook
+    # at run time, so this stays safe on disk at 0644 like the rest.
+    platform = {
+      # Admin scope only, normally empty. Tenant workspaces are day-2 and come
+      # from nkp-platform over Flux.
+      workspaces = {
+        enabled = try(var.platform.workspaces.enabled, false)
+        entries = {
+          for name, argv in local.workspace_argv : name => {
+            argv = argv
+            # The namespace the workspace will own. Always equal to the name --
+            # see workspace_argv for why that is not a preference.
+            namespace = name
+          }
         }
+      }
+
+      # One rendered argv per (entry, workspace), for the hook to run on the
+      # bastion.
+      registryops = {
+        enabled = try(var.platform.registryops.enabled, false)
+
+        # For the hook, which creates the pull secret named by secret_ref from
+        # this username and the password it decrypts from SOPS. Names only.
+        registry = {
+          username   = try(var.platform.registryops.registry.username, null)
+          secret_ref = try(var.platform.registryops.registry.secret_ref, null)
+          insecure   = try(var.platform.registryops.registry.insecure, false)
+        }
+        registrations = local.registrations
+      }
+
+      # NO ARGV. The hook applies a GitRepository and a Kustomization with
+      # kubectl, so this is configuration rather than a command -- which is also
+      # why it needs no `nkp` verb and was never create-time argv.
+      gitops = {
+        enabled = try(var.platform.gitops.enabled, false)
+        url     = try(var.platform.gitops.url, null)
+        ref = {
+          branch = try(var.platform.gitops.ref.branch, null)
+          tag    = try(var.platform.gitops.ref.tag, null)
+          commit = try(var.platform.gitops.ref.commit, null)
+        }
+        # Resolved HERE, not in the hook. nkp-platform names each fleet after
+        # its management cluster and writes .render/<fleet>/ to the root of
+        # `deployed`, so the default is a fact about the other repo's layout and
+        # belongs with the rest of the contract rather than in Python.
+        path            = coalesce(try(var.platform.gitops.path, null), "./${var.cluster_name}")
+        secret_ref      = try(var.platform.gitops.secret_ref, null)
+        namespace       = try(var.platform.gitops.namespace, "kommander-flux")
+        interval        = try(var.platform.gitops.interval, "10m")
+        timeout         = try(var.platform.gitops.timeout, null)
+        prune           = try(var.platform.gitops.prune, true)
+        service_account = try(var.platform.gitops.service_account, null)
+        suspend         = try(var.platform.gitops.suspend, false)
       }
     }
   }

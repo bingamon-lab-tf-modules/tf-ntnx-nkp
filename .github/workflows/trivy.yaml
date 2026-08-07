@@ -74,7 +74,7 @@ jobs:
     steps:
       - id: checkout_repository
         name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           lfs: false
           submodules: recursive
@@ -103,7 +103,7 @@ jobs:
 
       - id: trivy_filesystem
         name: Trivy filesystem scan (SARIF)
-        shell: devenv shell --quiet bash -- -e {0}
+        shell: devenv --no-tui shell --quiet bash -- -e {0}
         run: >
           trivy
           filesystem
@@ -115,14 +115,14 @@ jobs:
 
       - id: trivy_upload
         name: Trivy (upload)
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "trivy-results.sarif"
 
       - id: trivy_status
         name: Trivy (status)
         if: always()
-        shell: devenv shell --quiet bash -- -e {0}
+        shell: devenv --no-tui shell --quiet bash -- -e {0}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

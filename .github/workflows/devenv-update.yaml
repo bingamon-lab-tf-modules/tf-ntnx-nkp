@@ -57,7 +57,7 @@ jobs:
     steps:
       - id: checkout_repository
         name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           lfs: false
           submodules: recursive
@@ -87,16 +87,16 @@ jobs:
       - id: devenv_gc
         name: Devenv gc
         run: |
-          devenv gc
+          devenv --no-tui gc
 
       - id: devenv_update
         name: Devenv update
         run: |
-          devenv update
+          devenv --no-tui update
 
       - id: create_pull_request
         name: Create Pull Request
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: Update devenv.lock"

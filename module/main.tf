@@ -1,57 +1,39 @@
 ##################################################
-# NKP Clusters
-##################################################
-
-# TODO: nutanix_nkp_cluster resource is not yet available in the nutanix provider.
-# Uncomment and implement when provider support is added.
+# tf-ntnx-nkp — validation anchor
 #
-# resource "nutanix_nkp_cluster" "cluster" {
-#   for_each = var.clusters
-#   name     = each.value.name
-#   description = each.value.description
-#   kubernetes_version = each.value.kubernetes_version
+# This module renders an execution contract for the `nkp` CLI and NOTHING else.
+# There is no VM, no cluster and no provisioner here: `nkp create cluster` is a
+# 30-45 minute imperative command with no values file, no idempotency and no
+# state tracking, so wrapping it in a provisioner would put secrets in state,
+# hold the state lock for the duration, and create destroy hazards
+# (lz-paas ADR 0018). An lz-cli hook executes the contract over SSH.
 #
-#   control_plane {
-#     num_instances = each.value.control_plane.num_instances
-#     cpu = each.value.control_plane.cpu
-#     memory_mib = each.value.control_plane.memory_mib
-#     disk_gib = each.value.control_plane.disk_gib
-#     network_uuid = each.value.control_plane.network_uuid
-#     prism_element_cluster_uuid = each.value.control_plane.prism_element_cluster_uuid
-#   }
-# }
-
-##################################################
-# NKP Node Pools
+# terraform_data is a built-in null-style resource on OpenTofu >= 1.9. It takes
+# no input and exists purely to host the precondition below, evaluated at plan.
 ##################################################
 
-# TODO: nutanix_nkp_node_pool resource is not yet available in the nutanix provider.
-#
-# resource "nutanix_nkp_node_pool" "node_pool" {
-#   for_each = var.node_pools
-#   name = each.value.name
-#   cluster_id = nutanix_nkp_cluster.cluster[each.value.cluster_key].id
-#   num_instances = each.value.num_instances
-#   cpu = each.value.cpu
-#   memory_mib = each.value.memory_mib
-#   disk_gib = each.value.disk_gib
-#   network_uuid = each.value.network_uuid
-#   prism_element_cluster_uuid = each.value.prism_element_cluster_uuid
-#   labels = each.value.labels
-# }
+resource "terraform_data" "validation" {
 
-##################################################
-# NKP Registries
-##################################################
+  lifecycle {
 
-# TODO: nutanix_nkp_registry resource is not yet available in the nutanix provider.
-#
-# resource "nutanix_nkp_registry" "registry" {
-#   for_each = var.registries
-#   name = each.value.name
-#   url = each.value.url
-#   port = each.value.port
-#   username = each.value.username
-#   password = each.value.password
-#   cert = each.value.cert
-# }
+    # ONE aggregate precondition rather than one per category, so a plan reports
+    # every problem at once instead of making the operator re-plan per typo.
+    # The categories are computed separately in locals.tf:
+    #
+    #   1. static IP/CIDR math       lb_range_errors, cidr_overlap_errors,
+    #                                vip_cidr_errors
+    #   2. version contract          version_errors
+    #   3. air-gap invariants        airgap_errors
+    #   4. Nutanix object existence  existence_errors  (needs credentials;
+    #                                gated by var.enable_data_lookups)
+    #
+    # var.enforce_validation is a TEST SEAM and defaults to true; see its
+    # description in variables.tf. Tests set it false so they can assert which
+    # error was raised, because a failed precondition makes every output
+    # unreadable.
+    precondition {
+      condition     = !var.enforce_validation || length(local.validation_errors) == 0
+      error_message = "NKP cluster '${var.cluster_name}' has ${length(local.validation_errors)} configuration error(s):\n  - ${join("\n  - ", local.validation_errors)}"
+    }
+  }
+}

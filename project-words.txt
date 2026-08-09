@@ -745,3 +745,4 @@ pflag
 linadmin
 tmpfiles
 registryops
+Delinea

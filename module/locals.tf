@@ -605,6 +605,18 @@ locals {
         }
       }
 
+      # NO ARGV, and no value. The hook applies one Secret with kubectl, built
+      # from these names and the token it decrypts from SOPS -- so this is
+      # configuration rather than a command, and the contract stays free of
+      # credentials while being written to disk at 0644.
+      eso = {
+        enabled       = try(var.platform.eso.enabled, false)
+        secret_name   = try(var.platform.eso.secret_name, "nkp-eso-token")
+        secret_key    = try(var.platform.eso.secret_key, "token")
+        namespace     = try(var.platform.eso.namespace, "kommander")
+        client_id_key = try(var.platform.eso.client_id_key, "clientId")
+      }
+
       # One rendered argv per (entry, workspace), for the hook to run on the
       # bastion.
       registryops = {

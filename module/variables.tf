@@ -614,6 +614,28 @@ variable "platform" {
       })), [])
     }), {})
 
+    # THE KEYRING. The credential the fleet's ClusterSecretStore authenticates
+    # with, and the only secret that cannot itself be declarative: nothing can
+    # fetch the credential used to fetch credentials.
+    #
+    # NAMES ONLY, like everything else in this plane. The token lives in
+    # nkp/<cluster>.sops.json at platform.eso.token and the hook places it; no
+    # credential enters this variable, the contract or state.
+    #
+    # THESE NAMES ARE A CROSS-REPO CONTRACT. nkp-platform's
+    # platform/<mgmt>/cluster.yaml names the same secret, key and namespace in
+    # its secretStore auth block. A mismatch leaves every ExternalSecret in the
+    # fleet NotReady naming the STORE rather than the absent Secret.
+    eso = optional(object({
+      enabled     = optional(bool, false)
+      secret_name = optional(string, "nkp-eso-token")
+      secret_key  = optional(string, "token")
+      namespace   = optional(string, "kommander")
+      # Delinea only: its client id rides the same Secret as the client secret,
+      # so a rotation cannot replace one and orphan the other.
+      client_id_key = optional(string, "clientId")
+    }), {})
+
     # THE MENU. Each entry becomes one Flux OCIRepository per workspace,
     # carrying NKP's catalog label.
     registryops = optional(object({

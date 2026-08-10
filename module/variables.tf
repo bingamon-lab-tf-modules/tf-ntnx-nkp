@@ -544,7 +544,13 @@ variable "license" {
 
     # The Kubernetes Secret the hook creates and the License CR points at. A
     # NAME; the key itself lives in nkp/<cluster>.sops.json at license.key.
-    secret_name = optional(string, "nkp-license")
+    # NAMED AS NKP NAMES IT. Licensing a cluster through the Kommander UI creates
+    # `nutanix-license` and points the License CR at it; matching that means the
+    # hook converges on the SAME object instead of creating a second Secret and
+    # repointing the CR, which would leave the UI's orphaned and the cluster
+    # holding two licence Secrets that disagree about nothing but are confusing
+    # to find. Verified against nkp-mgmt-dev on 2026-08-10.
+    secret_name = optional(string, "nutanix-license")
   })
   default     = {}
   description = "NKP licence application. The key is read from SOPS by the hook; only its Secret's name appears here."

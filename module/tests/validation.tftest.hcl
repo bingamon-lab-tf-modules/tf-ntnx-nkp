@@ -520,8 +520,14 @@ run "an_enabled_license_names_its_secret" {
 
   # The hook creates this Secret and the License CR references it, so the
   # default has to be a usable name rather than empty.
+  #
+  # `nutanix-license` SPECIFICALLY, because that is what licensing a cluster
+  # through the Kommander UI creates. Matching it means the hook updates that
+  # object in place rather than creating a second Secret and repointing the CR,
+  # which would leave the UI's orphaned. Verified against a real cluster on
+  # 2026-08-10; this assertion is what stops the two drifting apart again.
   assert {
-    condition     = output.contract.license.secret_name == "nkp-license"
+    condition     = output.contract.license.secret_name == "nutanix-license"
     error_message = "An enabled licence must carry the Secret name the hook creates."
   }
 }

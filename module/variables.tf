@@ -544,7 +544,13 @@ variable "license" {
 
     # The Kubernetes Secret the hook creates and the License CR points at. A
     # NAME; the key itself lives in nkp/<cluster>.sops.json at license.key.
-    secret_name = optional(string, "nkp-license")
+    # NAMED AS NKP NAMES IT. Licensing a cluster through the Kommander UI creates
+    # `nutanix-license` and points the License CR at it; matching that means the
+    # hook converges on the SAME object instead of creating a second Secret and
+    # repointing the CR, which would leave the UI's orphaned and the cluster
+    # holding two licence Secrets that disagree about nothing but are confusing
+    # to find. Verified against nkp-mgmt-dev on 2026-08-10.
+    secret_name = optional(string, "nutanix-license")
   })
   default     = {}
   description = "NKP licence application. The key is read from SOPS by the hook; only its Secret's name appears here."
@@ -612,6 +618,28 @@ variable "platform" {
         name         = string
         display_name = optional(string, null)
       })), [])
+    }), {})
+
+    # THE KEYRING. The credential the fleet's ClusterSecretStore authenticates
+    # with, and the only secret that cannot itself be declarative: nothing can
+    # fetch the credential used to fetch credentials.
+    #
+    # NAMES ONLY, like everything else in this plane. The token lives in
+    # nkp/<cluster>.sops.json at platform.eso.token and the hook places it; no
+    # credential enters this variable, the contract or state.
+    #
+    # THESE NAMES ARE A CROSS-REPO CONTRACT. nkp-platform's
+    # platform/<mgmt>/cluster.yaml names the same secret, key and namespace in
+    # its secretStore auth block. A mismatch leaves every ExternalSecret in the
+    # fleet NotReady naming the STORE rather than the absent Secret.
+    eso = optional(object({
+      enabled     = optional(bool, false)
+      secret_name = optional(string, "nkp-eso-token")
+      secret_key  = optional(string, "token")
+      namespace   = optional(string, "kommander")
+      # Delinea only: its client id rides the same Secret as the client secret,
+      # so a rotation cannot replace one and orphan the other.
+      client_id_key = optional(string, "clientId")
     }), {})
 
     # THE MENU. Each entry becomes one Flux OCIRepository per workspace,

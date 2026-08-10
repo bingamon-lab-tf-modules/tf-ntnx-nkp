@@ -581,8 +581,12 @@ locals {
     # `licensing: [Pro, Ultimate]`, and Starter also gates workspace management
     # itself -- so an unlicensed cluster can do none of what follows.
     license = {
-      enabled     = try(var.license.enabled, false)
-      secret_name = try(var.license.secret_name, "nkp-license")
+      enabled = try(var.license.enabled, false)
+      # Kept in step with the variable's own default. This `try` only fires when
+      # var.license is absent entirely, so a stale value here would surface for
+      # exactly one caller -- the one that configured nothing -- which is the
+      # hardest case to notice.
+      secret_name = try(var.license.secret_name, "nutanix-license")
     }
 
     # THE SEAM TO nkp-platform, in the order the hook applies it.

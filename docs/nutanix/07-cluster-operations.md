@@ -108,7 +108,7 @@ you have established an Identity Provider.
   oidc:`<workspace_ID>`:`<IdP_user_group>`. For example,
   oidc:tenant-z:engineering.
 - For users: configure the subjects.name field to
-  `<workspace_ID>`:`<user_email>`. For example, tenant-z:jane.doe@example.com.
+  `<workspace_ID>`:`<user_email>`. For example, tenant-z:`jane.doe@example.com`.
 
 ```yaml
 Note: Run kubectl get workspaces to obtain a list of all existing workspaces. The workspace_ID
@@ -173,7 +173,7 @@ depending on the context for which you have established an Identity Provider.
   oidc:`<workspace_ID>`:`<github_org>`:`<github_team>`. For example,
   oidc:tenant-z:org:team-a.
 - For users: Add an Identity Provider User in the
-  `<workspace_ID>`:`<user_email>`. For example, tenant-z:jane.doe@example.com.
+  `<workspace_ID>`:`<user_email>`. For example, tenant-z:`jane.doe@example.com`.
 
 ```yaml
 Note: Run kubectl get workspaces to obtain a list of all existing workspaces. The workspace_ID
@@ -297,7 +297,7 @@ EOF
 
 If you have configured an Identity Provider for a specific workspace,
 configure the subjects.name field to `<workspace_ID>`:`<user_email>`. For
-example, tenant-z:jane.doe@example.com.
+example, tenant-z:`jane.doe@example.com`.
 
 User Namespace Restriction
 
@@ -326,7 +326,7 @@ EOF
 
 If you have configured an Identity Provider for a specific workspace,
 configure the subjects.name field to `<workspace_ID>`:`<user_email>`. For
-example, tenant-z:jane.doe@example.com.
+example, tenant-z:`jane.doe@example.com`.
 
 The user can now only perform non-destructive operations targeting resources
 in the #baz# namespace.
@@ -372,7 +372,7 @@ you have established an Identity Provider.
   oidc:`<workspace_ID>`:`<IdP_user_group>`. For example,
   oidc:tenant-z:engineering.
 - For users: configure the subjects.name field to
-  `<workspace_ID>`:`<user_email>`. For example, tenant-z:jane.doe@example.com.
+  `<workspace_ID>`:`<user_email>`. For example, tenant-z:`jane.doe@example.com`.
 
 ```yaml
 Note: Run kubectl get workspaces to obtain a list of all existing workspaces. The workspace_ID
@@ -769,7 +769,7 @@ groupSearch:
 baseDN: ou=testorg,dc=testdomain
 filter: "(objectClass=posixGroup)"
 userMatchers:
-- userAttr: uid
+  - userAttr: uid
 groupAttr: memberUid
 nameAttr: cn
 ```
@@ -798,7 +798,7 @@ you have established an Identity Provider.
   oidc:`<workspace_ID>`:`<IdP_user_group>`. For example,
   oidc:tenant-z:engineering.
 - For users: configure the subjects.name field to
-  `<workspace_ID>`:`<user_email>`. For example, tenant-z:jane.doe@example.com.
+  `<workspace_ID>`:`<user_email>`. For example, tenant-z:`jane.doe@example.com`.
 
 ```yaml
 Note: Run kubectl get workspaces to obtain a list of all existing workspaces. The
@@ -819,7 +819,7 @@ apiGroup: rbac.authorization.k8s.io
 kind: ClusterRole
 name: cluster-admin
 subjects:
-- apiGroup: rbac.authorization.k8s.io
+  - apiGroup: rbac.authorization.k8s.io
 kind: User
 name: newUser
 ```
@@ -837,7 +837,7 @@ apiGroup: rbac.authorization.k8s.io
 kind: ClusterRole
 name: cluster-admin
 subjects:
-- apiGroup: rbac.authorization.k8s.io
+  - apiGroup: rbac.authorization.k8s.io
 kind: Group
 name: oidc:kommanderAdmins
 ```
@@ -996,7 +996,7 @@ depending on the context for which you have established an Identity Provider.
   oidc:`<workspace_ID>`:`<github_org>`:`<github_team>`. For example,
   oidc:tenant- z:org:team-a.
 - For users: Add an Identity Provider User in the
-  `<workspace_ID>`:`<user_email>`. For example, tenant-z:jane.doe@example.com.
+  `<workspace_ID>`:`<user_email>`. For example, tenant-z:`jane.doe@example.com`.
 
 ```yaml
 Note: Run kubectl get workspaces to obtain a list of all existing workspaces. The
@@ -3491,10 +3491,10 @@ spec:
 capiCluster:
 topology:
 variables:
-- name: clusterConfig
+  - name: clusterConfig
 value:
 imageRegistries:
-- url: <HARBOR_ADDRESS>
+  - url: <HARBOR_ADDRESS>
 credentials:
 secretRef:
 name: harbor-registry-credentials
@@ -5712,26 +5712,26 @@ configOverrides:
 name: kube-prometheus-stack-overrides-attached
 clusterSelector:
 matchExpressions:
-- key: kommander.d2iq.io/cluster-name
+  - key: kommander.d2iq.io/cluster-name
 operator: In
 values:
-- attached-cluster1
-- attached-cluster2
+  - attached-cluster1
+  - attached-cluster2
 clusterConfigOverrides:
-- configMapName: kps-cluster1-overrides
+  - configMapName: kps-cluster1-overrides
 clusterSelector:
 matchExpressions:
-- key: kommander.d2iq.io/cluster-name
+  - key: kommander.d2iq.io/cluster-name
 operator: In
 values:
-- attached-cluster1
-- configMapName: kps-cluster2-overrides
+  - attached-cluster1
+  - configMapName: kps-cluster2-overrides
 clusterSelector:
 matchExpressions:
-- key: kommander.d2iq.io/cluster-name
+  - key: kommander.d2iq.io/cluster-name
 operator: In
 values:
-- attached-cluster2
+  - attached-cluster2
 ```
 
 Here you can see that kube-prometheus-stack has been enabled for the attached-
@@ -7879,7 +7879,7 @@ depending on the context for which you have established an Identity Provider.
   oidc:tenant-z:engineering.
 - For users: Add an Identity Provider User in the
   `<workspace_ID>`:`<user_email>` format. For example,
-  tenant-z:jane.doe@example.com.
+  tenant-z:`jane.doe@example.com`.
 
 ```yaml
 Note: Run kubectl get workspaces to obtain a list of all existing workspaces. The workspace_ID is listed
@@ -11050,7 +11050,7 @@ prismElementCluster:
 type: name
 name: example-prism-element-cluster
 subnets:
-- type: name
+  - type: name
 name: example-subnet
 ```
 
@@ -21728,12 +21728,12 @@ appRef:
 kind: ClusterApp
 name: dex-2.11.1
 clusterConfigOverrides:
-- clusterSelector:
+  - clusterSelector:
 matchExpressions:
-- key: kommander.d2iq.io/cluster-name
+  - key: kommander.d2iq.io/cluster-name
 operator: In
 values:
-- management
+  - management
 configMapName: dex-kommander-overrides
 configOverrides: # Copy and paste this section.
 name: dex-overrides
@@ -21769,7 +21769,7 @@ Create the following ClusterRoleBinding resource:.
 - Replace `<cluster_admin>` with the RBAC role you want to assign to a user.
 - If you have configured an Identity Provider for a specific workspace (see
   Multi-Tenancy in NKP on page 412), configure the subjects.name field to
-  `<workspace_ID>`:`<user_email>`. For example, tenant-z:jane.doe@example.com.
+  `<workspace_ID>`:`<user_email>`. For example, tenant-z:`jane.doe@example.com`.
 
 ```bash
 cat <<EOF | kubectl apply -f -
@@ -22061,21 +22061,21 @@ name: hostaliases-konvoy-pod
 spec:
 restartPolicy: Never
 hostAliases:
-- ip: "127.0.0.1"
+  - ip: "127.0.0.1"
 hostnames:
-- "foo.node.local"
-- "bar.node.local"
-- ip: "10.1.2.3"
+  - "foo.node.local"
+  - "bar.node.local"
+  - ip: "10.1.2.3"
 hostnames:
-- "foo.node.remote"
-- "bar.node.remote"
+  - "foo.node.remote"
+  - "bar.node.remote"
 containers:
-- name: cat-hosts
+  - name: cat-hosts
 image: busybox
 command:
-- cat
+  - cat
 args:
-- "/etc/hosts"
+  - "/etc/hosts"
 ```
 
 ### Required Domains
@@ -24723,7 +24723,7 @@ spec:
 selector:
 app: my-app
 ports:
-- name: metrics
+  - name: metrics
 port: 8080
 ```
 
@@ -24867,6 +24867,7 @@ apiVersion: config.kommander.mesosphere.io/v1alpha1
 kind: Installation
 apps:
 ...
+
 ...
 grafana-loki:
 enabled: false

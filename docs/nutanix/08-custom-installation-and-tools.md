@@ -822,7 +822,7 @@ spec:
 calicoNetwork:
 # Note: The ipPools section cannot be modified post-install.
 ipPools:
-- blockSize: 26
+  - blockSize: 26
 cidr: 172.16.0.0/16
 kind: ConfigMap
 metadata:
@@ -3576,7 +3576,7 @@ namespace: <CLUSTER_NAMESPACE>
 spec:
 topology:
 variables:
-- name: clusterConfig
+  - name: clusterConfig
 value:
 addons:
 cni:
@@ -4056,7 +4056,7 @@ konvoy.d2iq.io/provider: nutanix
 name: ${MANAGEMENT_CLUSTER_NAME}-pc-credentials-for-konnector-agent
 namespace: default
 ownerReferences:
-- apiVersion: cluster.x-k8s.io/v1beta1
+  - apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 name: ${MANAGEMENT_CLUSTER_NAME}
 uid: 3075d1d4-2357-4ffc-a88a-3563c87513d8
@@ -5947,7 +5947,7 @@ spec:
 clusterNetwork:
 pods:
 cidrBlocks:
-- 172.16.0.0/16
+  - 172.16.0.0/16
 ConfigMap: Edit the data."custom-resources.yaml".spec.calicoNetwork.ipPools.cidr field with
 your desired pod subnet:
 apiVersion: v1
@@ -5962,7 +5962,7 @@ spec:
 calicoNetwork:
 # Note: The ipPools section cannot be modified post-install. (2)
 ipPools:
-- blockSize: 26
+  - blockSize: 26
 cidr: 172.16.0.0/16
 kind: ConfigMap
 metadata:
@@ -7853,7 +7853,7 @@ metadata:
 name: ${MY_NODEPOOL_NAME}
 spec:
 hosts:
-- address: ${IP_OF_NODE}
+  - address: ${IP_OF_NODE}
 sshConfig:
 port: 22
 user: ${SSH_USERNAME}
@@ -8121,7 +8121,7 @@ metadata:
 name: ${MY_NODEPOOL_NAME}
 spec:
 hosts:
-- address: ${IP_OF_NODE}
+  - address: ${IP_OF_NODE}
 sshConfig:
 port: 22
 user: ${SSH_USERNAME}

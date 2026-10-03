@@ -4573,7 +4573,7 @@ metadata:
 name: ${MY_NODEPOOL_NAME}
 spec:
 hosts:
-- address: ${IP_OF_NODE}
+  - address: ${IP_OF_NODE}
 sshConfig:
 port: 22
 user: ${SSH_USERNAME}
@@ -5878,7 +5878,7 @@ metadata:
 name: ${MY_NODEPOOL_NAME}
 spec:
 hosts:
-- address: ${IP_OF_NODE}
+  - address: ${IP_OF_NODE}
 sshConfig:
 port: 22
 user: ${SSH_USERNAME}

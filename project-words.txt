@@ -746,3 +746,5 @@ linadmin
 tmpfiles
 registryops
 Delinea
+SecretSpec
+mktemp

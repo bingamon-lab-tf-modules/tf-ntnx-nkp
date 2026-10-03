@@ -10,14 +10,14 @@ A description of the module goes here.
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.10.0 |
 | <a name="requirement_nutanix"></a> [nutanix](#requirement\_nutanix) | ~> 2.4.2 |
 
 ## Providers
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="provider_nutanix"></a> [nutanix](#provider\_nutanix) | 2.4.2 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
@@ -28,7 +28,7 @@ No modules.
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [terraform_data.validation](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [nutanix_clusters_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/clusters_v2) | data source |
 | [nutanix_images_v2.this](https://registry.terraform.io/providers/nutanix/nutanix/latest/docs/data-sources/images_v2) | data source |
@@ -38,7 +38,7 @@ No modules.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_airgap"></a> [airgap](#input\_airgap) | Air-gap artefact paths on the bastion. Both are mandatory: this module only renders air-gapped installs. Entries may be absolute, or relative to ${cache\_dir} — see below. | <pre>object({<br/>    bundles                 = list(string)<br/>    bootstrap_cluster_image = string<br/>  })</pre> | n/a | yes |
 | <a name="input_bastion"></a> [bastion](#input\_bastion) | Bastion the lz-cli hook connects to. host is a DNS name or IP typed by the operator. cache\_root and run\_root are generic per-host roots; this module namespaces itself underneath them. | <pre>object({<br/>    host         = string<br/>    user         = optional(string, "linadmin")<br/>    cache_root   = optional(string, "/var/tmp/lz-cli/cache")<br/>    run_root     = optional(string, "/run/lz-cli")<br/>    min_free_gib = optional(number, 60)<br/>  })</pre> | n/a | yes |
 | <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name of the NKP management cluster. Prefixes every created Nutanix resource. | `string` | n/a | yes |
@@ -63,7 +63,7 @@ No modules.
 ## Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | <a name="output_command_human"></a> [command\_human](#output\_command\_human) | The create command rendered as a copy-pasteable shell string, for docs and manual reproduction. Credentials appear only as environment variables the operator exports, never inline. |
 | <a name="output_contract"></a> [contract](#output\_contract) | Execution contract for the lz-cli hooks: argv for create and delete, the<br/>non-secret environment, the names of required secret environment variables,<br/>the bastion to run on, and what ensure\_ready() must verify first.<br/><br/>The caller writes this to .lz/<env>/nkp-contract.json. Contains no secrets. |
 | <a name="output_outputs"></a> [outputs](#output\_outputs) | Aggregate of all module outputs, consumed by the landing zone as module.<x>.outputs. |

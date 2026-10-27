@@ -748,3 +748,5 @@ registryops
 Delinea
 SecretSpec
 mktemp
+esac
+secops

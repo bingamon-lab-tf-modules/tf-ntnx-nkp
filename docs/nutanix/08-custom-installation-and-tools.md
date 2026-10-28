@@ -4852,7 +4852,7 @@ Procedure
 
 1. Create an Azure Service Principal (SP) by using the command az ad sp
    create-for-rbac --role contributor --name "$(whoami)-konvoy"
-  --scopes=/subscriptions/$(az account show -- query id -o tsv). This command
+   --scopes=/subscriptions/$(az account show -- query id -o tsv). This command
    will rotate the password if an SP with the name exists. Example output:
 
 ```bash
@@ -8630,7 +8630,7 @@ cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size=2
 ```
 
 - nkp scale nodepools ${NODEPOOL NAME} --replicas= \_; count; --cluster-
-   name=${CLUSTER NAME} \_
+  name=${CLUSTER NAME} \_
 
 | --- | --- | --- |
 

@@ -1485,10 +1485,10 @@ capiCluster:
 clusterNetwork:
 pods:
 cidrBlocks:
-- 192.168.0.0/16
+  - 192.168.0.0/16
 services:
 cidrBlocks:
-- 10.96.0.0/12
+  - 10.96.0.0/12
 topology:
 classRef:
 name: nkp-nutanix-v2.18.0 # ClusterClass version
@@ -1496,11 +1496,11 @@ version: v1.35.2 # Kubernetes version
 controlPlane:
 replicas: 3
 variables:
-- name: clusterConfig
+  - name: clusterConfig
 value: # ... cluster configuration variables ...
 workers:
 machineDeployments:
-- class: default-worker
+  - class: default-worker
 name: md-0 # ... worker configuration ...
 # Reference to the auto-created CAPI Cluster (managed by NKPCluster controller)
 capiClusterRef:
